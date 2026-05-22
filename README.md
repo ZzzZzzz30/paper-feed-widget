@@ -131,7 +131,7 @@ paper-feed-widget/
 │       ├── translator.ts  # 翻译调度
 │       ├── translation/   # 翻译实现
 │       ├── analysis/      # AI 分析
-│       ├── recommender.ts # 推荐引擎
+│       ├── push-manager.ts # 推送队列
 │       └── db.ts          # SQLite 数据库
 ├── src/                   # React 前端
 │   ├── components/        # UI 组件
