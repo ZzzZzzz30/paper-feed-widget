@@ -11,14 +11,24 @@ interface JournalConfig {
 }
 
 function loadJournals(): JournalConfig[] {
-  // 优先从项目根目录 journals.json 读取
+  // 优先从 settings 表读取用户自定义期刊
+  try {
+    const db = getDb()
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'journals'").get() as { value?: string } | undefined
+    if (row?.value) {
+      const data = JSON.parse(row.value)
+      if (Array.isArray(data) && data.length > 0) return data
+    }
+  } catch {}
+
+  // 其次从 journals.json 读取
   const configPath = path.join(__dirname, '..', '..', 'journals.json')
   try {
     if (fs.existsSync(configPath)) {
       const data = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
       if (Array.isArray(data) && data.length > 0) return data
     }
-  } catch (e) { console.error('[Fetcher] journals.json 读取失败，使用默认期刊') }
+  } catch (e) { console.error('[Fetcher] journals.json 读取失败') }
 
   // fallback 默认期刊
   return [

@@ -58,6 +58,8 @@ const api = {
   getTranslationCloudStatus: () => ipcRenderer.invoke('translation:cloud-status') as Promise<{ tencent: { hasOpen: boolean; hasArrearage: boolean } | null; aliyun: null }>,
   recoverTranslationProvider: (provider: string) => ipcRenderer.invoke('translation:recover', provider),
   resetTranslationStats: (provider: string) => ipcRenderer.invoke('translation:reset-stats', provider),
+  getJournals: () => ipcRenderer.invoke('journals:get') as Promise<Array<{ name: string; issn: string; rssUrl: string }>>,
+  saveJournals: (journals: Array<{ name: string; issn: string; rssUrl: string }>) => ipcRenderer.invoke('journals:save', journals),
   getQuotaOverview: () => ipcRenderer.invoke('translation:quota-overview') as Promise<any>,
 }
 

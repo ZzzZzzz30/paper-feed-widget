@@ -35,6 +35,8 @@ interface ElectronAPI {
   getTranslationCloudStatus: () => Promise<{ tencent: { hasOpen: boolean; hasArrearage: boolean } | null; aliyun: null }>
   recoverTranslationProvider: (provider: string) => Promise<{ ok: boolean }>
   resetTranslationStats: (provider: string) => Promise<{ ok: boolean }>
+  getJournals: () => Promise<Array<{ name: string; issn: string; rssUrl: string }>>
+  saveJournals: (journals: Array<{ name: string; issn: string; rssUrl: string }>) => Promise<{ ok: boolean }>
   getQuotaOverview: () => Promise<any>
 }
 

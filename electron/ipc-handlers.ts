@@ -94,6 +94,27 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     } catch { return null }
   })
 
+  ipcMain.handle('journals:get', async () => {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'journals'").get() as { value?: string } | undefined
+    if (row?.value) {
+      try { return JSON.parse(row.value) } catch { /* ignore */ }
+    }
+    // fallback 到 journals.json
+    try {
+      const fs = require('fs')
+      const path = require('path')
+      const p = path.join(__dirname, '..', '..', 'journals.json')
+      if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf-8'))
+    } catch {}
+    return []
+  })
+
+  ipcMain.handle('journals:save', async (_e, journals: unknown[]) => {
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('journals', ?)").run(JSON.stringify(journals))
+    saveNow()
+    return { ok: true }
+  })
+
   ipcMain.handle('push:get-blocked-ids', async () => {
     const rows = db.prepare("SELECT DISTINCT article_id FROM interactions WHERE action IN ('bookmark','dislike','skip')").all() as Array<{ article_id: number }>
     return rows.map(r => r.article_id)

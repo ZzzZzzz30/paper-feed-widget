@@ -86,6 +86,10 @@ export default function SettingsPanel() {
           <Row label="每轮篇数"><input type="number" value={local.push_count || '20'} onChange={e => set('push_count', e.target.value)} min="5" max="100" className={inp + ' w-20'} /></Row>
         </Section>
 
+        <Section title="期刊管理">
+          <JournalManager />
+        </Section>
+
         <Section title="翻译额度与安全">
           <Row label="引擎"><select value={local.translation_provider || 'tencent'} onChange={e => set('translation_provider', e.target.value)} className={inp + ' w-24'}><option value="tencent">腾讯云</option><option value="aliyun">阿里云</option><option value="ollama">Ollama</option></select></Row>
           <Row label="失败时自动降级">
@@ -260,6 +264,59 @@ function QuotaDashboard() {
       {quotaCard(data.providers.aliyun)}
       <div className="text-[10px] theme-text-subtle italic">
         免费额度: 腾讯云 500万/月 | 阿里云 100万/月 · Ollama 本地不计入
+      </div>
+    </div>
+  )
+}
+
+function JournalManager() {
+  const [journals, setJournals] = useState<Array<{ name: string; issn: string; rssUrl: string }>>([])
+  const [loaded, setLoaded] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newIssn, setNewIssn] = useState('')
+  const [newRss, setNewRss] = useState('')
+
+  useEffect(() => {
+    window.electronAPI.getJournals().then(j => { setJournals(j || []); setLoaded(true) }).catch(() => setLoaded(true))
+  }, [])
+
+  const inpS = "flex-1 px-2 py-1 rounded text-xs theme-bg-overlay-strong theme-text-secondary border theme-border-light outline-none"
+
+  const save = (updated: typeof journals) => {
+    setJournals(updated)
+    window.electronAPI.saveJournals(updated)
+  }
+
+  const add = () => {
+    if (!newName.trim() || !newIssn.trim() || !newRss.trim()) return
+    save([...journals, { name: newName.trim(), issn: newIssn.trim(), rssUrl: newRss.trim() }])
+    setNewName(''); setNewIssn(''); setNewRss('')
+  }
+
+  const remove = (i: number) => {
+    if (!confirm(`确定移除「${journals[i].name}」？`)) return
+    save(journals.filter((_, idx) => idx !== i))
+  }
+
+  if (!loaded) return <div className="text-xs theme-text-subtle">加载中...</div>
+
+  return (
+    <div className="space-y-2">
+      {journals.map((j, i) => (
+        <div key={i} className="flex items-center gap-1 text-xs">
+          <span className="flex-1 theme-text-secondary truncate">{j.name}</span>
+          <span className="text-[10px] theme-text-subtle w-20 truncate">ISSN:{j.issn}</span>
+          <button onClick={() => remove(i)} className="text-[10px] px-1 py-0.5 rounded text-red-400 hover:text-red-300">✕</button>
+        </div>
+      ))}
+      <div className="flex flex-col gap-1 pt-2 border-t theme-border-light">
+        <input placeholder="期刊名称" value={newName} onChange={e => setNewName(e.target.value)} className={inpS} />
+        <div className="flex gap-1">
+          <input placeholder="ISSN" value={newIssn} onChange={e => setNewIssn(e.target.value)} className={inpS + ' w-24'} />
+          <input placeholder="RSS URL" value={newRss} onChange={e => setNewRss(e.target.value)} className={inpS} />
+          <button onClick={add} className="shrink-0 px-2 py-1 rounded text-[10px] theme-accent-bg theme-accent-text hover:opacity-80">添加</button>
+        </div>
+        <div className="text-[10px] theme-text-subtle">在 ScienceDirect 期刊页底部找 RSS 图标获取链接。改完后点"刷新推送"生效。</div>
       </div>
     </div>
   )
