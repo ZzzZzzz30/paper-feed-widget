@@ -1,0 +1,31 @@
+appId: com.paperfeed.widget
+productName: PaperFeed
+copyright: Copyright © 2025
+
+directories:
+  output: release
+  buildResources: resources
+
+files:
+  - dist/**/*
+  - package.json
+  - resources/icon.png
+  - journals.json
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: resources/icon.png
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  icon: resources/icon.png
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true

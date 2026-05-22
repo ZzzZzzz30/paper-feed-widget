@@ -1,0 +1,47 @@
+{
+  "name": "paper-feed-widget",
+  "version": "0.1.0",
+  "description": "期刊论文桌面推送挂件 - 像刷小红书一样读论文",
+  "main": "dist/electron/main.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:electron\"",
+    "dev:renderer": "vite",
+    "dev:electron": "tsc -p tsconfig.electron.json && electron .",
+    "build": "tsc -p tsconfig.electron.json && vite build && electron-builder",
+    "build:win": "tsc -p tsconfig.electron.json && vite build && electron-builder --win",
+    "build:mac": "tsc -p tsconfig.electron.json && vite build && electron-builder --mac"
+  },
+  "dependencies": {
+    "framer-motion": "^11.15.0",
+    "node-cron": "^3.0.3",
+    "openai": "^6.37.0",
+    "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^4.9.155",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1",
+    "rss-parser": "^3.13.0",
+    "sql.js": "^1.11.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node-cron": "^3.0.11",
+    "@types/pdf-parse": "^1.1.4",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/sql.js": "^1.4.9",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.0",
+    "cross-env": "^10.1.0",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3",
+    "vite-plugin-electron": "^0.28.8"
+  }
+}

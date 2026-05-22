@@ -1,0 +1,1 @@
+export { translateArticle } from './service'

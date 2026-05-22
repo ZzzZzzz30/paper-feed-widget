@@ -1,0 +1,73 @@
+E:\pythonproject\paper-feed-widget>npm run dev
+
+> paper-feed-widget@0.1.0 dev
+> concurrently "npm run dev:renderer" "npm run dev:electron"
+
+[0]
+[0] > paper-feed-widget@0.1.0 dev:renderer
+[0] > vite
+[0]
+[1]
+[1] > paper-feed-widget@0.1.0 dev:electron
+[1] > tsc -p tsconfig.electron.json && cross-env ELSEVIER_API_KEY=810ae629ff5f22d942b221c5d4374191 electron .
+[1]
+[1]
+[1] [Window] 等待 Vite 启动... (1/30)
+[1] [Window] 等待 Vite 启动... (2/30)
+[1] [Window] 等待 Vite 启动... (3/30)
+[1] [Window] 等待 Vite 启动... (4/30)
+[1] [Window] 等待 Vite 启动... (5/30)
+[1] [Window] 等待 Vite 启动... (6/30)
+[1] [Window] 等待 Vite 启动... (7/30)
+[1] [Window] 等待 Vite 启动... (8/30)
+[1] [Window] 等待 Vite 启动... (9/30)
+[1] [Window] 等待 Vite 启动... (10/30)
+[0] (node:17936) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///E:/pythonproject/paper-feed-widget/postcss.config.js?t=1778763070937 is not specified and it doesn't parse as CommonJS.
+[0] Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+[0] To eliminate this warning, add "type": "module" to E:\pythonproject\paper-feed-widget\package.json.
+[0] (Use `node --trace-warnings ...` to show where the warning was created)
+[1] [Window] 等待 Vite 启动... (11/30)
+[0]
+[0]   VITE v6.4.2  ready in 51031 ms
+[0]
+[0]   ➜  Local:   http://localhost:5173/
+[0]   ➜  Network: use --host to expose
+[1] [Window] Vite 就绪，加载页面
+[1] [Fetcher] 跳过（距上次抓取不足5分钟）
+[1] [Fetcher] Computers, Environment and Urban Systems: 20 篇
+[1] [Fetcher] Computers, Environment and Urban Systems: 20 篇
+[1] [Fetcher] Cities: 99 篇
+[1] [Fetcher] Cities: 99 篇
+[1] [Fetcher] Landscape and Urban Planning: 29 篇
+[1] [Fetcher] Landscape and Urban Planning: 29 篇
+[1] [Fetcher] Habitat International: 48 篇
+[1] [Fetcher] Habitat International: 48 篇
+[1] [Fetcher] Applied Geography: 46 篇
+[1] [Fetcher] 本轮新增 242 篇文章
+[1] [Abstract] 补充 3 篇元数据...
+[1] [Fetcher] Applied Geography: 46 篇
+[1] [Fetcher] 本轮新增 0 篇文章
+[1] [Abstract] 补充 3 篇元数据...
+[1] [Abstract] 完成 3/3 篇
+[1] [Abstract] 完成 3/3 篇
+[1] [Translator] 翻译完成: 埃塞俄比亚阿姆哈拉地区城乡联系与可持续性的挑战...
+[1] [Translator] 翻译完成: 公民科学对可持续城市转型、城市可持续性和城市规划的贡献：一项...
+[1] [Translator] 翻译完成: 城市集聚政策是否改善了城市用地效率？基于281个中国城市的准...
+[1] [Translator] 翻译完成: 公民科学对可持续城市转型、城市可持续性和城市规划的贡献：一项...
+[1] [Translator] 翻译完成: 可持续城市与都市转型：住宅可持续认证的经济与驱动因素...
+[1] [Translator] 并行预翻译 3 篇...
+[1] [Abstract] 补充 5 篇元数据...
+[1] [Abstract] 完成 5/5 篇
+[1] [Translator] 翻译完成: 创建用于城市再生场景评估的城市数字孪生(UDT)模块指南，包...
+[1] [Translator] 并行预翻译 4 篇...
+[1] [Abstract] 补充 5 篇元数据...
+[1] [Abstract] 完成 5/5 篇
+[1] [Translator] 翻译完成: 关系型城市村庄：通过季节性居住重新思考流动人口对城市村庄的影...
+[1] [Translator] 翻译完成: 创建用于城市再生场景评估的城市数字孪生(UDT)模块指南，包...
+[1] [Translator] 翻译完成: 揭示城市扩张中的合并与连接过程...
+[1] [Translator] 预翻译完成 3 篇
+[1] [Translator] 翻译完成: 重拾城市自然：重新自然化项目中的公共价值、身份与治理...
+[1] [Translator] 翻译完成: 创新与城市金融：世界银行作为知识与发展机构...
+[1] [Translator] 翻译完成: 绿地、空间度量与城市配置与慢性疾病流行率之间的关联：意大利托...
+[1] [Translator] 翻译完成: 在网格尺度下探索城乡融合背景下城市边缘区的发展动态及空间-时...
+[1] [Translator] 预翻译完成 4 篇
