@@ -1,5 +1,11 @@
 node_modules/
 dist/
+release/
 .env
 .env.local
 *.db
+*.db-journal
+debug-test.js
+test-backend.js
+setup.js
+另一个AI的回答.txt
