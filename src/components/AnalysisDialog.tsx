@@ -32,22 +32,9 @@ export default function AnalysisDialog({ articleId, articleTitle, onClose, showC
     setMessages([])
     setInput('')
     setSessionId(null)
-    setLoadedArticleId(null)
-    setLoading(true)
-    console.log('[AnalysisDialog] loading session for articleId=', articleId)
-
-    window.electronAPI.getAnalysisSession(articleId).then(s => {
-      if (reqId !== requestIdRef.current) return
-      setSessionId(s.sessionId)
-      setMessages((s.messages || []) as Message[])
-      setLoadedArticleId(articleId)
-      setLoading(false)
-      console.log('[AnalysisDialog] loaded', (s.messages || []).length, 'messages for articleId=', articleId)
-    }).catch(() => {
-      if (reqId !== requestIdRef.current) return
-      setLoadedArticleId(articleId)
-      setLoading(false)
-    })
+    setLoadedArticleId(articleId)
+    setLoading(false)
+    console.log('[AnalysisDialog] new empty session for articleId=', articleId)
   }, [articleId])
 
   const addMsg = (role: 'user' | 'assistant', content: string) => setMessages(p => [...p, { role, content }])
