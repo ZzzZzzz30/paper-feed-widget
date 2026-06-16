@@ -23,7 +23,7 @@ class DatabaseWrapper {
 
   prepare(sql: string): StatementWrapper {
     const stmt = this.db.prepare(sql)
-    return new StatementWrapper(stmt)
+    return new StatementWrapper(stmt, this.db)
   }
 
   export(): Uint8Array {
@@ -36,7 +36,7 @@ class DatabaseWrapper {
 }
 
 class StatementWrapper {
-  constructor(private stmt: Statement) {}
+  constructor(private stmt: Statement, private db: SqlJsDb) {}
 
   get(...params: unknown[]): Record<string, unknown> | undefined {
     this.stmt.bind(params as SqlValue[])
@@ -60,16 +60,16 @@ class StatementWrapper {
   }
 
   run(...params: unknown[]): { changes: number; lastInsertRowid: number } {
-    this.stmt.bind(params as SqlValue[])
-    this.stmt.step()
-    const rowsModified = this.stmt.getAsObject()
-    this.stmt.free()
-
-    // Run a separate query to get lastInsertRowid
-    // sql.js tracks this via db.exec but not easily accessible per-statement
-    return {
-      changes: 0,
-      lastInsertRowid: 0,
+    try {
+      this.stmt.bind(params as SqlValue[])
+      this.stmt.step()
+      const changes = this.db.getRowsModified()
+      const rows = this.db.exec('SELECT last_insert_rowid() AS id')
+      const rawId = rows[0]?.values?.[0]?.[0]
+      const lastInsertRowid = typeof rawId === 'number' ? rawId : Number(rawId) || 0
+      return { changes, lastInsertRowid }
+    } finally {
+      this.stmt.free()
     }
   }
 }

@@ -6,7 +6,7 @@ import { fetchAllJournals } from './services/fetcher'
 import { fetchAbstractsForArticles } from './services/abstract-fetcher'
 import { generatePushQueue, getQueueSize } from './services/push-manager'
 import { quickSummary, chat } from './services/analysis/analysis-service'
-import { getTranslationUsage, getSetting, getIntSetting, getFloatSetting } from './services/translation/service'
+import { getTranslationUsage, getSetting, getIntSetting, getFloatSetting, isProviderPaused } from './services/translation/service'
 import { checkTencentOpenStatus } from './services/translation/tencent-translator'
 import { toggleAnalysisBubble, closeAnalysisBubble } from './analysis-bubble-window'
 import { getOrCreateSession } from './services/analysis/analysis-service'
@@ -34,6 +34,10 @@ function spawnFirefox(url: string): Promise<void> {
 
 export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   const db = getDb()
+  const currentMonthKey = () => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  }
 
   ipcMain.handle('articles:get', async (_e, params: { status?: string; limit?: number; offset?: number }) => {
     const limit = params.limit || 20
@@ -131,6 +135,10 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('settings:update', async (_e, { key, value }: { key: string; value: string }) => {
     console.log(`[Settings] update ${key} = ${value}`)
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value)
+    const initialUsedMatch = key.match(/^(tencent|aliyun)_initial_used_chars$/)
+    if (initialUsedMatch) {
+      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(`${initialUsedMatch[1]}_initial_used_month`, currentMonthKey())
+    }
     try {
       saveNow()
       console.log('[Settings] 保存成功')
@@ -283,9 +291,21 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const now = new Date()
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
 
+    // 查询云端状态
+    let tencentCloudStatus: { available: boolean; hasOpen?: boolean; hasArrearage?: boolean } = { available: false }
+    try {
+      const status = await checkTencentOpenStatus()
+      tencentCloudStatus = { available: true, hasOpen: status.hasOpen, hasArrearage: status.hasArrearage }
+    } catch (e) {
+      console.error('[quota-overview] 云端状态查询失败:', e)
+    }
+
     function buildQuota(p: string, name: string) {
       const limitWan = getIntSetting(`${p}_char_limit`, p === 'tencent' ? 500 : 100)
-      const initialWan = getIntSetting(`${p}_initial_used_chars`, 0)
+      // initial_used_chars 按月隔离：仅当月设置的值生效
+      const savedMonth = getSetting(`${p}_initial_used_month`, '')
+      const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+      const initialWan = savedMonth === currentMonth ? getIntSetting(`${p}_initial_used_chars`, 0) : 0
       const warnRatio = getFloatSetting(`${p}_warn_ratio`, 0.8)
       const stopRatio = getFloatSetting(`${p}_stop_ratio`, 0.9)
       const localChars = p === 'tencent' ? usage.tencentChars : usage.aliyunChars
@@ -308,14 +328,15 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
         else if (percent !== null && percent >= warnRatio) { status = 'warning'; reason = `已使用 ${Math.round(percent*100)}% 限额` }
       }
 
-      // Cloud status (only tencent has it via DescribeOpenStatus)
+      // Cloud status
       const cloud: { available: boolean; hasOpen?: boolean; hasArrearage?: boolean; usageNote?: string } = { available: false }
       if (p === 'tencent') {
-        cloud.available = true
-        cloud.usageNote = '腾讯云云端调用量查询暂不可用，当前使用本地统计防超额'
+        Object.assign(cloud, tencentCloudStatus)
+        if (!cloud.available) cloud.usageNote = '云端查询失败'
+        else if (cloud.hasArrearage) cloud.usageNote = '⚠ 云端显示欠费，请检查'
+        else cloud.usageNote = '已开通，未欠费'
       } else {
-        cloud.available = false
-        cloud.usageNote = '阿里云云端报表待接入'
+        cloud.usageNote = '本地统计防超额'
       }
 
       return {
@@ -365,6 +386,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     if (!['tencent', 'aliyun'].includes(provider)) throw new Error('invalid provider')
     const monthStart = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`
     db.prepare("DELETE FROM translation_usage WHERE provider = ? AND created_at >= ?").run(provider, monthStart)
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(`${provider}_initial_used_chars`, '0')
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(`${provider}_initial_used_month`, currentMonthKey())
+    db.prepare("DELETE FROM translation_control WHERE provider = ?").run(provider)
     saveNow()
     return { ok: true }
   })

@@ -74,11 +74,6 @@ export default function SettingsPanel() {
           <Row label="阿里云 AK ID"><input type="password" value={local.aliyun_access_key_id || ''} onChange={e => set('aliyun_access_key_id', e.target.value)} className={inp} placeholder="LTAI..." /></Row>
           <Row label="阿里云 AK Secret"><input type="password" value={local.aliyun_access_key_secret || ''} onChange={e => set('aliyun_access_key_secret', e.target.value)} className={inp} placeholder="Secret" /></Row>
           <Row label="DeepSeek"><input type="password" value={local.deepseek_api_key || ''} onChange={e => set('deepseek_api_key', e.target.value)} className={inp} placeholder="sk-..." /></Row>
-          <Row label="DeepSeek 输入价"><input type="number" value={local.deepseek_input_price || '0.14'} onChange={e => set('deepseek_input_price', e.target.value)} step="0.01" className={inp + ' w-20'} /><span className="text-xs theme-text-subtle">$/M tokens</span></Row>
-          <Row label="DeepSeek 输出价"><input type="number" value={local.deepseek_output_price || '0.28'} onChange={e => set('deepseek_output_price', e.target.value)} step="0.01" className={inp + ' w-20'} /><span className="text-xs theme-text-subtle">$/M tokens</span></Row>
-          <div className="text-xs theme-text-subtle mt-1">--- DeepSeek 预算 ---</div>
-          <Row label="本月预算 ($)"><input type="number" value={local.deepseek_monthly_budget_usd || '2'} onChange={e => set('deepseek_monthly_budget_usd', e.target.value)} step="0.5" min="0" className={inp + ' w-20'} /><span className="text-xs theme-text-subtle">0=不限</span></Row>
-          <Row label="初始已用 ($)"><input type="number" value={local.deepseek_initial_used_usd || '0'} onChange={e => set('deepseek_initial_used_usd', e.target.value)} step="0.01" min="0" className={inp + ' w-20'} /></Row>
         </Section>
 
         <Section title="推送">
@@ -128,63 +123,8 @@ export default function SettingsPanel() {
           </label>
         </Section>
 
-        <Section title="DeepSeek 用量"><DeepSeekUsage /></Section>
       </div>
     </div>
-    </div>
-  )
-}
-
-function DeepSeekUsage() {
-  const local = useStore(s => s.settings)
-  const [usage, setUsage] = useState<{ input: number; output: number; total: number; cost: number } | null>(null)
-  useEffect(() => {
-    window.electronAPI.getDeepSeekUsage?.().then(setUsage).catch(() => {})
-  }, [])
-  const budget = parseFloat(local.deepseek_monthly_budget_usd || '2') || 0
-  const initialUsed = parseFloat(local.deepseek_initial_used_usd || '0') || 0
-  const localCost = usage?.cost || 0
-  const usedCost = initialUsed + localCost
-  const percent = budget > 0 ? usedCost / budget : null
-  const pctText = percent !== null ? (percent * 100).toFixed(1) + '%' : '不限'
-  const warnRatio = parseFloat(local.deepseek_warn_ratio || '0.8')
-  const stopRatio = parseFloat(local.deepseek_stop_ratio || '0.9')
-  const stopAt = budget * stopRatio
-  const s = percent !== null && percent >= stopRatio ? 'paused' : percent !== null && percent >= warnRatio ? 'warning' : 'normal'
-  const barC = s === 'normal' ? 'bg-green-500/60' : s === 'warning' ? 'bg-yellow-500/70' : 'bg-red-500/70'
-  const statusC = s === 'normal' ? 'text-green-400' : s === 'warning' ? 'text-yellow-400' : 'text-red-400'
-  const statusL = s === 'normal' ? '正常' : s === 'warning' ? '⚠ 接近预算' : '⛔ 已暂停'
-
-  if (!usage) return <div className="text-xs theme-text-subtle">加载中...</div>
-  return (
-    <div className="rounded-xl p-3 theme-bg-overlay border theme-border-light space-y-2">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-medium theme-text-secondary">DeepSeek API</span>
-        <span className={`text-[11px] font-medium ${statusC}`}>{statusL}</span>
-      </div>
-      {budget > 0 ? (
-        <>
-          <div>
-            <div className="flex justify-between text-[11px] theme-text-muted mb-0.5">
-              <span>${usedCost.toFixed(4)} / ${budget.toFixed(2)}</span>
-              <span>{pctText}</span>
-            </div>
-            <div className="h-1.5 rounded-full theme-bg-overlay-strong overflow-hidden">
-              <div className={`h-full rounded-full ${barC}`} style={{ width: Math.min(100, (percent || 0) * 100) + '%' }} />
-            </div>
-          </div>
-          <div className="text-[10px] theme-text-subtle">
-            提醒线: ${(budget * warnRatio).toFixed(2)} · 停止线: ${stopAt.toFixed(2)}
-            {percent !== null && percent < stopRatio && <span> · 距停止: ${(stopAt - usedCost).toFixed(4)}</span>}
-          </div>
-        </>
-      ) : (
-        <div className="text-[11px] text-yellow-400">未设置预算 (不推荐)</div>
-      )}
-      <div className="text-[10px] theme-text-secondary space-y-0.5">
-        <div>输入: {usage.input.toLocaleString()} tokens · 输出: {usage.output.toLocaleString()} tokens</div>
-        <div>本月估算: ${localCost.toFixed(4)} · 初始已用: ${initialUsed.toFixed(2)}</div>
-      </div>
     </div>
   )
 }
@@ -239,13 +179,22 @@ function QuotaDashboard() {
         <button onClick={async () => {
           if (confirm(`确定将${p.displayName}标记为已用完全月额度？\n这将把初始已用量设为 ${p.limitWan} 万字符并自动暂停。`)) {
             await window.electronAPI.updateSetting(p.provider + '_initial_used_chars', String(p.limitWan))
+            const now = new Date()
+            const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+            await window.electronAPI.updateSetting(p.provider + '_initial_used_month', month)
             setRefreshKey(k => k + 1)
           }
         }} className="text-[9px] px-1.5 py-0.5 rounded theme-bg-overlay-strong text-red-400 hover:text-red-300">额度用完</button>
       </div>
       <div className="flex items-center gap-1 text-[10px] mt-1">
         <span className="theme-text-muted">初始已用(万):</span>
-        <input type="number" defaultValue={p.initialUsedWan} onChange={e => { window.electronAPI.updateSetting(p.provider + '_initial_used_chars', e.target.value); setRefreshKey(k => k + 1) }} min="0" step="1" className="w-12 px-1 py-0.5 rounded theme-bg-overlay-strong theme-text-secondary text-[10px] border theme-border-light outline-none" />
+        <input type="number" defaultValue={p.initialUsedWan} onChange={e => {
+          window.electronAPI.updateSetting(p.provider + '_initial_used_chars', e.target.value)
+          const now = new Date()
+          const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+          window.electronAPI.updateSetting(p.provider + '_initial_used_month', month)
+          setRefreshKey(k => k + 1)
+        }} min="0" step="1" className="w-12 px-1 py-0.5 rounded theme-bg-overlay-strong theme-text-secondary text-[10px] border theme-border-light outline-none" />
       </div>
       <div className="text-[10px] theme-text-subtle italic">{p.cloudStatus.usageNote}</div>
     </div>
