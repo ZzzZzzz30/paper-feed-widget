@@ -54,7 +54,11 @@ export default function AnalysisDialog({ articleId, articleTitle, onClose, showC
 
   const handleQuickSummary = async () => {
     setLoading(true)
-    try { addMsg('assistant', await window.electronAPI.quickSummary(articleId)) }
+    try {
+      const result = await window.electronAPI.quickSummary({ articleId, sessionId })
+      setSessionId(result.sessionId)
+      addMsg('assistant', result.reply)
+    }
     catch (e) { addMsg('assistant', '概括失败: ' + String(e)) }
     setLoading(false)
   }

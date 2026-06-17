@@ -240,8 +240,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     mainWindow.setAlwaysOnTop(!mainWindow.isAlwaysOnTop())
   })
 
-  ipcMain.handle('article:quick-summary', async (_e, articleId: number) => {
-    try { return await quickSummary(articleId) } catch (e) { return '分析失败: ' + String(e) }
+  ipcMain.handle('article:quick-summary', async (_e, { articleId, sessionId }: { articleId: number; sessionId?: number | null }) => {
+    try { return await quickSummary(articleId, sessionId) } catch (e) { return { sessionId: sessionId || 0, reply: '分析失败: ' + String(e) } }
   })
   ipcMain.handle('analysis:chat', async (_e, { articleId, sessionId, message }: { articleId: number; sessionId: number | null; message: string }) => {
     try { return await chat(articleId, sessionId, message) } catch (e) { return { sessionId: sessionId || 0, reply: '对话失败: ' + String(e) } }

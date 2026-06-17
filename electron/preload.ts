@@ -36,7 +36,7 @@ const api = {
   onMetadataUpdated: (callback: (data: { articleId: number; abstract: string; doi: string }) => void) => {
     ipcRenderer.on('article:metadata-updated', (_event, data) => callback(data))
   },
-  quickSummary: (articleId: number) => ipcRenderer.invoke('article:quick-summary', articleId),
+  quickSummary: (params: { articleId: number; sessionId: number | null }) => ipcRenderer.invoke('article:quick-summary', params),
   analysisChat: (params: { articleId: number; sessionId: number | null; message: string }) => ipcRenderer.invoke('analysis:chat', params),
   openAnalysisBubble: (payload: { articleId: number; articleTitle: string }) => ipcRenderer.invoke('analysis-bubble:toggle', payload),
   getAnalysisSession: (articleId: number) => ipcRenderer.invoke('analysis:get-session', articleId),

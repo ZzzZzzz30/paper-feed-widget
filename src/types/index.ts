@@ -17,7 +17,7 @@ interface ElectronAPI {
   onNavigate: (callback: (view: string) => void) => void
   onArticleTranslated: (callback: (data: { articleId: number; titleCn: string; abstractCn: string }) => void) => void
   onMetadataUpdated?: (callback: (data: { articleId: number; abstract: string; doi: string }) => void) => void
-  quickSummary: (articleId: number) => Promise<string>
+  quickSummary: (params: { articleId: number; sessionId: number | null }) => Promise<{ sessionId: number; reply: string }>
   analysisChat: (params: { articleId: number; sessionId: number | null; message: string }) => Promise<{ sessionId: number; reply: string }>
   openAnalysisBubble: (payload: { articleId: number; articleTitle: string }) => Promise<boolean>
   getAnalysisSession: (articleId: number) => Promise<{ sessionId: number; messages: Array<{ role: string; content: string }> }>
