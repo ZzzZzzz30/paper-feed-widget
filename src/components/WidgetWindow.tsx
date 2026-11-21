@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { BookOpen, ChevronUp, Minus, Settings, Star } from 'lucide-react'
 import { useStore } from '../store'
 import CardStack from './CardStack'
 import type { PushQueueItem, Article } from '../types'
@@ -42,7 +43,7 @@ export default function WidgetWindow({ mode = 'push' }: Props) {
         const items: PushQueueItem[] = articles.map((a: Article) => ({
           articleId: a.id, title: a.title || '', titleCn: a.title_cn || '',
           abstract: a.abstract || '', abstractCn: a.abstract_cn || '',
-          doi: a.extra_doi || '', tldr: '', innovation: [],
+          doi: a.extra_doi || '', url: a.pdf_url || a.url || '', tldr: '', innovation: [],
           journal: a.journal || '', year: a.year || 0, score: 0,
         }))
         setQueue(items)
@@ -62,7 +63,7 @@ export default function WidgetWindow({ mode = 'push' }: Props) {
               savedItems.push({
                 articleId: a.id, title: a.title || '', titleCn: a.title_cn || '',
                 abstract: a.abstract || '', abstractCn: a.abstract_cn || '',
-                doi: a.extra_doi || '', tldr: '', innovation: [],
+                doi: a.extra_doi || '', url: a.pdf_url || a.url || '', tldr: '', innovation: [],
                 journal: a.journal || '', year: a.year || 0, score: 0,
               })
             }
@@ -108,21 +109,18 @@ export default function WidgetWindow({ mode = 'push' }: Props) {
   return (
     <div className="app-shell">
       <div className="window-safe-area">
-        <div className="window-frame theme-window">
+        <div className="window-frame theme-window paper-widget">
           {/* 标题栏 — 绝对定位，0–32px，仅负责拖拽和按钮 */}
           <div className="window-titlebar">
-            <span className="text-xs theme-text-muted font-medium">
-              {mode === 'bookmarks' ? '⭐ 收藏列表' : 'PaperFeed'}
+            <span className="paper-widget-name">
+              {mode === 'bookmarks' ? <Star size={15} /> : <BookOpen size={15} />}
+              {mode === 'bookmarks' ? '收藏详情' : 'PaperFeed'}
             </span>
-            <div className="window-control flex items-center gap-3">
-              <button onClick={() => window.electronAPI.minimizeWindow()}
-                className="w-5 h-5 flex items-center justify-center theme-text-muted hover:theme-text-secondary transition-colors" title="最小化">
-                <span className="block w-2.5 h-[1.5px] bg-current rounded-full" />
-              </button>
-              <button onClick={() => setView('bookmarks')}
-                className="w-5 h-5 flex items-center justify-center theme-text-muted hover:theme-text-secondary text-xs transition-colors">⭐</button>
-              <button onClick={() => setView('settings')}
-                className="w-5 h-5 flex items-center justify-center theme-text-muted hover:theme-text-secondary text-xs transition-colors">⚙️</button>
+            <div className="window-control paper-window-controls">
+              <button type="button" onClick={() => setView('bookmarks')} title="收藏列表" aria-label="收藏列表"><Star size={16} /></button>
+              <button type="button" onClick={() => setView('settings')} title="设置" aria-label="设置"><Settings size={16} /></button>
+              {mode === 'push' && <button type="button" data-collapse title="收起 PaperFeed" aria-label="收起 PaperFeed"><ChevronUp size={17} /></button>}
+              <button type="button" onClick={() => window.electronAPI.minimizeWindow()} title="最小化" aria-label="最小化"><Minus size={16} /></button>
             </div>
           </div>
 

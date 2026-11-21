@@ -1,15 +1,19 @@
 import { ipcMain, BrowserWindow, shell } from 'electron'
+import { setWidgetCompact, setWorkspaceExpanded, resizeSurface, dragIsland, isIslandHovered, setWindowMaterial } from './window'
 import { spawn } from 'child_process'
 import fs from 'fs'
 import { getDb, saveNow } from './services/db'
 import { fetchAllJournals } from './services/fetcher'
+import { getConferenceOptions, saveConferenceOptions, syncConferences } from './services/conference-fetcher'
+import { getConfiguredMinYear } from './services/publication-policy'
 import { fetchAbstractsForArticles } from './services/abstract-fetcher'
-import { generatePushQueue, getQueueSize } from './services/push-manager'
+import { generatePushQueue, getQueueSize, selectPushItems } from './services/push-manager'
 import { quickSummary, chat } from './services/analysis/analysis-service'
 import { getTranslationUsage, getSetting, getIntSetting, getFloatSetting, isProviderPaused } from './services/translation/service'
-import { checkTencentOpenStatus } from './services/translation/tencent-translator'
 import { toggleAnalysisBubble, closeAnalysisBubble } from './analysis-bubble-window'
 import { getOrCreateSession } from './services/analysis/analysis-service'
+import { discoverJournal, type JournalConfig } from './services/journal-discovery'
+import { getSettingsForRenderer, hasSecretSetting, isSecretSetting, writeSettingValue } from './services/secure-settings'
 
 function getFirefoxPath(): string | null {
   if (process.platform !== 'win32') return null
@@ -42,13 +46,16 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('articles:get', async (_e, params: { status?: string; limit?: number; offset?: number }) => {
     const limit = params.limit || 20
     const offset = params.offset || 0
+    const yearRow = db.prepare("SELECT value FROM settings WHERE key='year_from'").get() as { value?: string } | undefined
+    const minYear = getConfiguredMinYear(yearRow?.value)
     if (params.status === 'bookmarked') {
-      return db.prepare(`SELECT DISTINCT a.* FROM articles a JOIN interactions i ON a.id = i.article_id WHERE i.action = 'bookmark' ORDER BY i.timestamp DESC LIMIT ? OFFSET ?`).all(limit, offset)
+      return db.prepare(`SELECT DISTINCT a.* FROM articles a JOIN interactions i ON a.id = i.article_id WHERE i.action = 'bookmark' AND a.year >= ? ORDER BY i.timestamp DESC LIMIT ? OFFSET ?`).all(minYear, limit, offset)
     }
-    return db.prepare('SELECT * FROM articles ORDER BY publication_date DESC LIMIT ? OFFSET ?').all(limit, offset)
+    return db.prepare('SELECT * FROM articles WHERE year >= ? ORDER BY publication_date DESC LIMIT ? OFFSET ?').all(minYear, limit, offset)
   })
 
   ipcMain.handle('interaction:record', async (_e, { articleId, action }: { articleId: number; action: string }) => {
+    if (action !== 'bookmark' && action !== 'dislike') throw new Error('Invalid interaction action')
     // 防止重复收藏
     if (action === 'bookmark') {
       const already = db.prepare("SELECT id FROM interactions WHERE article_id = ? AND action = 'bookmark'").get(articleId)
@@ -56,7 +63,6 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     }
     db.prepare('INSERT INTO interactions (article_id, action) VALUES (?, ?)').run(articleId, action)
     db.prepare('UPDATE articles SET is_pushed = 1, push_count = push_count + 1 WHERE id = ?').run(articleId)
-    saveNow()
     return { ok: true }
   })
 
@@ -67,13 +73,11 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('article:mark-read', async (_e, articleId: number) => {
     db.prepare("INSERT INTO interactions (article_id, action) VALUES (?, 'read')").run(articleId)
-    saveNow()
     return { ok: true }
   })
 
   ipcMain.handle('article:mark-unread', async (_e, articleId: number) => {
     db.prepare("DELETE FROM interactions WHERE article_id = ? AND action = 'read'").run(articleId)
-    saveNow()
     return { ok: true }
   })
 
@@ -85,7 +89,6 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('push:save-state', async (_e, payload: { ids: number[]; index: number }) => {
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('push_saved_ids', ?)").run(JSON.stringify(payload.ids))
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('push_saved_index', ?)").run(String(payload.index))
-    saveNow()
     return { ok: true }
   })
 
@@ -113,40 +116,75 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     return []
   })
 
-  ipcMain.handle('journals:save', async (_e, journals: unknown[]) => {
+  const validateJournals = (value: unknown): JournalConfig[] => {
+    if (!Array.isArray(value) || value.length > 200) throw new Error('期刊列表格式不正确')
+    return value.map(item => {
+      if (!item || typeof item.name !== 'string' || !item.name.trim() || item.name.length > 200
+        || typeof item.issn !== 'string' || !/^\d{4}-\d{3}[\dX]$/i.test(item.issn)
+        || typeof item.rssUrl !== 'string' || (item.rssUrl && !/^https:\/\//i.test(item.rssUrl))) {
+        throw new Error('期刊名称、ISSN 或订阅地址不正确')
+      }
+      return { name: item.name.trim(), issn: item.issn.toUpperCase(), rssUrl: item.rssUrl }
+    })
+  }
+
+  ipcMain.handle('journals:discover', async (_e, name: unknown) => discoverJournal(name))
+
+  ipcMain.handle('journals:add', async (_e, value: unknown) => {
+    const [journal] = validateJournals([value])
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'journals'").get() as { value?: string } | undefined
+    const journals: JournalConfig[] = row?.value ? validateJournals(JSON.parse(row.value)) : []
+    const added = !journals.some(item => item.issn === journal.issn || item.name.toLowerCase() === journal.name.toLowerCase())
+    if (added) {
+      journals.push(journal)
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('journals', ?)").run(JSON.stringify(journals))
+    }
+    return { added, journals }
+  })
+
+  ipcMain.handle('journals:save', async (_e, value: unknown) => {
+    const journals = validateJournals(value)
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('journals', ?)").run(JSON.stringify(journals))
-    saveNow()
     return { ok: true }
   })
 
+  ipcMain.handle('conferences:get', async () => getConferenceOptions())
+  ipcMain.handle('conferences:save', async (_e, value: unknown) => ({ ok: true, conferences: saveConferenceOptions(value) }))
+  ipcMain.handle('conferences:sync', async () => syncConferences(true))
+
   ipcMain.handle('push:get-blocked-ids', async () => {
-    const rows = db.prepare("SELECT DISTINCT article_id FROM interactions WHERE action IN ('bookmark','dislike','skip')").all() as Array<{ article_id: number }>
+    const rows = db.prepare("SELECT DISTINCT article_id FROM interactions WHERE action IN ('bookmark','dislike')").all() as Array<{ article_id: number }>
     return rows.map(r => r.article_id)
   })
 
   ipcMain.handle('settings:get', async () => {
-    const rows = db.prepare('SELECT key, value FROM settings').all() as Array<{ key: string; value: string }>
-    const settings: Record<string, string> = {}
-    for (const row of rows) settings[row.key] = row.value
+    const settings = getSettingsForRenderer()
     console.log('[Settings] getSettings → font_size =', settings.font_size, 'font_family =', settings.font_family)
     return settings
   })
 
   ipcMain.handle('settings:update', async (_e, { key, value }: { key: string; value: string }) => {
-    console.log(`[Settings] update ${key} = ${value}`)
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value)
-    const initialUsedMatch = key.match(/^(tencent|aliyun)_initial_used_chars$/)
-    if (initialUsedMatch) {
-      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(`${initialUsedMatch[1]}_initial_used_month`, currentMonthKey())
-    }
     try {
-      saveNow()
-      console.log('[Settings] 保存成功')
+      if (key === 'year_from') {
+        const parsed = Number.parseInt(value, 10)
+        if (!Number.isFinite(parsed)) throw new Error('出版年份必须是有效数字')
+        value = String(Math.max(2025, parsed))
+      }
+      if (isSecretSetting(key)) {
+        writeSettingValue(key, value)
+        saveNow()
+      } else {
+        writeSettingValue(key, value)
+      }
+      const initialUsedMatch = key.match(/^(aliyun)_initial_used_chars$/)
+      if (initialUsedMatch) {
+        db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(`${initialUsedMatch[1]}_initial_used_month`, currentMonthKey())
+      }
     } catch (err) {
       console.error('[Settings] 保存失败:', err)
       throw new Error('设置保存失败')
     }
-    return { ok: true }
+    return { ok: true, ...(isSecretSetting(key) ? { configured: hasSecretSetting(key) } : {}) }
   })
 
   let pushPromise: Promise<ReturnType<typeof generatePushQueue>> | null = null
@@ -205,25 +243,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('push:queueSize', async () => getQueueSize())
 
   ipcMain.handle('push:more', async (_e, excludeIds: number[]) => {
-    const excludeSet = new Set(excludeIds || [])
-    const placeholders = excludeSet.size > 0 ? `AND a.id NOT IN (${[...excludeSet].map(() => '?').join(',')})` : ''
-    const queue = db.prepare(`
-      SELECT a.id, a.title, a.abstract, a.title_cn, a.abstract_cn, a.extra_doi, a.journal, a.year
-      FROM articles a
-      WHERE a.display_status='display_ready'
-      AND a.title_cn IS NOT NULL AND a.title_cn != ''
-      AND NOT EXISTS (SELECT 1 FROM interactions i WHERE i.article_id = a.id AND i.action IN ('bookmark','dislike','skip'))
-      ${placeholders}
-      ORDER BY a.publication_date DESC
-      LIMIT 20
-    `).all(...(excludeSet.size > 0 ? [...excludeSet] : [])) as Array<{
-      id:number;title:string;abstract:string;title_cn:string;abstract_cn:string;extra_doi:string;journal:string;year:number
-    }>
-    return queue.map(a => ({
-      articleId: a.id, title: a.title, titleCn: a.title_cn || '', abstract: a.abstract || '',
-      abstractCn: a.abstract_cn || '', doi: a.extra_doi || '', tldr: '', innovation: [],
-      journal: a.journal, year: a.year, score: 0,
-    }))
+    return selectPushItems(20, Array.isArray(excludeIds) ? excludeIds : [])
   })
 
   ipcMain.handle('article:translate', async (_e, articleId: number) => {
@@ -235,10 +255,39 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('window:minimize', () => mainWindow.minimize())
-  ipcMain.handle('window:close', () => mainWindow.hide())
-  ipcMain.handle('window:toggleOnTop', () => {
-    mainWindow.setAlwaysOnTop(!mainWindow.isAlwaysOnTop())
+  ipcMain.handle('window:set-compact', (event, compact: boolean, stage: 'prepare' | 'finish', preview = false) => {
+    if (event.sender !== mainWindow.webContents || event.senderFrame !== event.sender.mainFrame || typeof compact !== 'boolean' || !['prepare', 'finish'].includes(stage)) {
+      throw new Error('Invalid widget window request')
+    }
+    return setWidgetCompact(mainWindow, compact, stage, preview === true)
   })
+  const authorizeWindow = (event: Electron.IpcMainInvokeEvent) => {
+    if (event.sender !== mainWindow.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error('Invalid window request')
+  }
+  ipcMain.handle('window:workspace', (event, expanded: boolean) => {
+    authorizeWindow(event)
+    if (typeof expanded !== 'boolean') throw new Error('Invalid workspace request')
+    setWorkspaceExpanded(mainWindow, expanded)
+  })
+  ipcMain.handle('window:island-hovered', event => {
+    authorizeWindow(event)
+    return isIslandHovered(mainWindow)
+  })
+  ipcMain.handle('window:island-drag', (event, stage: string) => {
+    authorizeWindow(event)
+    if (!['start', 'move', 'end', 'cancel'].includes(stage)) throw new Error('Invalid drag request')
+    return dragIsland(mainWindow, stage)
+  })
+  ipcMain.handle('window:resize-surface', (event, stage: string, edge: string) => {
+    authorizeWindow(event)
+    if (!['start', 'end', 'cancel'].includes(stage) || typeof edge !== 'string') throw new Error('Invalid resize request')
+    resizeSurface(mainWindow, stage, edge)
+  })
+  ipcMain.handle('window:material', (event, material: string) => {
+    authorizeWindow(event)
+    setWindowMaterial(mainWindow, material)
+  })
+  ipcMain.handle('window:close', () => mainWindow.hide())
 
   ipcMain.handle('article:quick-summary', async (_e, { articleId, sessionId }: { articleId: number; sessionId?: number | null }) => {
     try { return await quickSummary(articleId, sessionId) } catch (e) { return { sessionId: sessionId || 0, reply: '分析失败: ' + String(e) } }
@@ -286,29 +335,20 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('translation:quota-overview', async () => {
     try {
     const usage = getTranslationUsage()
-    const provider = getSetting('translation_provider', 'tencent')
+    const provider = getSetting('translation_provider', 'aliyun')
     const fallback = getSetting('allow_translation_fallback', 'false') === 'true'
     const now = new Date()
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
 
-    // 查询云端状态
-    let tencentCloudStatus: { available: boolean; hasOpen?: boolean; hasArrearage?: boolean } = { available: false }
-    try {
-      const status = await checkTencentOpenStatus()
-      tencentCloudStatus = { available: true, hasOpen: status.hasOpen, hasArrearage: status.hasArrearage }
-    } catch (e) {
-      console.error('[quota-overview] 云端状态查询失败:', e)
-    }
-
     function buildQuota(p: string, name: string) {
-      const limitWan = getIntSetting(`${p}_char_limit`, p === 'tencent' ? 500 : 100)
+      const limitWan = getIntSetting(`${p}_char_limit`, 100)
       // initial_used_chars 按月隔离：仅当月设置的值生效
       const savedMonth = getSetting(`${p}_initial_used_month`, '')
       const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
       const initialWan = savedMonth === currentMonth ? getIntSetting(`${p}_initial_used_chars`, 0) : 0
       const warnRatio = getFloatSetting(`${p}_warn_ratio`, 0.8)
       const stopRatio = getFloatSetting(`${p}_stop_ratio`, 0.9)
-      const localChars = p === 'tencent' ? usage.tencentChars : usage.aliyunChars
+      const localChars = usage.aliyunChars
       const limitChars = limitWan * 10000
       const initialChars = initialWan * 10000
       const usedChars = initialChars + localChars
@@ -328,17 +368,6 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
         else if (percent !== null && percent >= warnRatio) { status = 'warning'; reason = `已使用 ${Math.round(percent*100)}% 限额` }
       }
 
-      // Cloud status
-      const cloud: { available: boolean; hasOpen?: boolean; hasArrearage?: boolean; usageNote?: string } = { available: false }
-      if (p === 'tencent') {
-        Object.assign(cloud, tencentCloudStatus)
-        if (!cloud.available) cloud.usageNote = '云端查询失败'
-        else if (cloud.hasArrearage) cloud.usageNote = '⚠ 云端显示欠费，请检查'
-        else cloud.usageNote = '已开通，未欠费'
-      } else {
-        cloud.usageNote = '本地统计防超额'
-      }
-
       return {
         provider: p, displayName: name,
         limitWan, limitChars, initialUsedWan: initialWan, initialUsedChars: initialChars,
@@ -348,26 +377,20 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
         remainingToWarn: limitWan > 0 ? Math.max(0, warnAt - usedChars) : null,
         remainingToStop: limitWan > 0 ? Math.max(0, stopAt - usedChars) : null,
         remainingToLimit: limitWan > 0 ? Math.max(0, limitChars - usedChars) : null,
-        status, reason, cloudStatus: cloud,
+        status, reason, cloudStatus: { available: false, usageNote: '本地统计防超额' },
       }
     }
 
-    // Global status
-    const tStatus = buildQuota('tencent', '腾讯云机器翻译').status
-    const aStatus = buildQuota('aliyun', '阿里云机器翻译').status
+    const aliyun = buildQuota('aliyun', '阿里云机器翻译')
     const globalStatus = !usage.ok ? 'error'
-      : (tStatus === 'paused' && aStatus === 'paused') ? 'paused'
-      : (tStatus === 'paused' || aStatus === 'paused' || tStatus === 'warning' || aStatus === 'warning') ? 'warning'
-      : 'normal'
+      : provider === 'ollama' ? 'normal'
+      : aliyun.status === 'paused' && fallback ? 'warning' : aliyun.status
 
     return {
       monthStart, monthLabel: `${now.getFullYear()}年${now.getMonth() + 1}月`,
       globalStatus, activeProvider: provider, allowFallback: fallback,
       localUsageOk: usage.ok, localUsageError: usage.error,
-      providers: {
-        tencent: buildQuota('tencent', '腾讯云机器翻译'),
-        aliyun: buildQuota('aliyun', '阿里云机器翻译'),
-      },
+      providers: { aliyun },
     }
     } catch (e) {
       console.error('[quota-overview] 异常:', e)
@@ -376,14 +399,14 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('translation:recover', async (_e, provider: string) => {
-    if (!['tencent', 'aliyun'].includes(provider)) throw new Error('invalid provider')
+    if (provider !== 'aliyun') throw new Error('invalid provider')
     db.prepare("DELETE FROM translation_control WHERE provider = ?").run(provider)
     saveNow()
     return { ok: true }
   })
 
   ipcMain.handle('translation:reset-stats', async (_e, provider: string) => {
-    if (!['tencent', 'aliyun'].includes(provider)) throw new Error('invalid provider')
+    if (provider !== 'aliyun') throw new Error('invalid provider')
     const monthStart = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`
     db.prepare("DELETE FROM translation_usage WHERE provider = ? AND created_at >= ?").run(provider, monthStart)
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(`${provider}_initial_used_chars`, '0')
@@ -391,12 +414,6 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     db.prepare("DELETE FROM translation_control WHERE provider = ?").run(provider)
     saveNow()
     return { ok: true }
-  })
-
-  ipcMain.handle('translation:cloud-status', async () => {
-    const status: Record<string, unknown> = { tencent: null, aliyun: null }
-    try { status.tencent = await checkTencentOpenStatus() } catch (e) { status.tencent = { error: String(e) } }
-    return status
   })
 
   ipcMain.handle('open:external-url', async (_e, rawUrl: string) => {

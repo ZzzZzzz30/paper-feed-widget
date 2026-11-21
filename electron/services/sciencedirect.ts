@@ -1,3 +1,5 @@
+import { readSecretSetting } from './secure-settings'
+
 /**
  * ScienceDirect API 客户端
  * 文档: https://dev.elsevier.com/documentation/ScienceDirectSearchAPI.wadl
@@ -160,13 +162,10 @@ function extractAuthors(
 function getApiKey(): string | null {
   // 优先从数据库读取，其次环境变量
   try {
-    const { getDb } = require('./db')
-    const db = getDb()
-    const row = db.prepare("SELECT value FROM settings WHERE key = 'elsevier_api_key'").get() as { value: string } | undefined
-    if (row?.value && row.value.trim()) return row.value.trim()
-    console.error('[SD] DB中有key但为空')
+    const value = readSecretSetting('elsevier_api_key')
+    if (value) return value.trim()
   } catch (err) {
-    console.error('[SD] 从DB读取API Key失败:', err)
+    console.error('[SD] 从系统安全存储读取 API Key 失败:', err)
   }
   // 降级到环境变量
   const envKey = process.env.ELSEVIER_API_KEY || null

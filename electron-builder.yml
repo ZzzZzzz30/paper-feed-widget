@@ -1,5 +1,6 @@
 appId: com.paperfeed.widget
 productName: PaperFeed
+artifactName: "${productName}-Setup-${version}.${ext}"
 copyright: Copyright © 2025
 
 directories:
@@ -24,7 +25,14 @@ mac:
       arch: [x64, arm64]
   icon: resources/icon.png
 
+publish:
+  provider: github
+  owner: ZzzZzzz30
+  repo: paper-feed-widget
+  releaseType: release
+
 nsis:
+  deleteAppDataOnUninstall: false
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true

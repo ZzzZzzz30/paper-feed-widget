@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { useStore } from '../store'
 import ArticleCard from './ArticleCard'
 import ActionBar from './ActionBar'
-import type { PushQueueItem, InteractionAction, ActionBarKey } from '../types'
+import { useWorkspace } from './ReadingWorkspace'
+import type { PushQueueItem, ActionBarKey } from '../types'
 
 interface Props {
   item: PushQueueItem
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export default function CardStack({ item, itemIndex, hasMore, mode = 'push' }: Props) {
+  const openWorkspace = useWorkspace()
   const advanceQueue = useStore(s => s.advanceQueue)
   const goBack = useStore(s => s.goBack)
   const advanceCircular = useStore(s => s.advanceCircular)
@@ -86,34 +88,23 @@ export default function CardStack({ item, itemIndex, hasMore, mode = 'push' }: P
     setIsProcessing(true)
     setCurrentArticleId(item.articleId)
 
-    if (mode === 'bookmarks') {
-      if (action === 'skip') { goBackCircular(); setIsProcessing(false); return }
-      if (action === 'next') { advanceCircular(); setIsProcessing(false); return }
+    if (action === 'previous' || action === 'next') {
+      if (action === 'previous') goBackCircular()
+      else advanceCircular()
+      setIsProcessing(false)
+      return
     }
 
-    const animMap: Record<string, string> = {
-      dislike: 'card-exit-dislike', skip: 'card-exit-dislike',
-      bookmark: 'card-exit-bookmark',
-    }
-    setExitAnimation(animMap[action] || '')
-    // next 不是交互，不需要记录
-    if (action !== 'next') {
-      await window.electronAPI.recordInteraction(item.articleId, action as InteractionAction)
-    }
-
-    // bookmark 和 dislike 都应从推送队列立即移除
-    if (action === 'bookmark' || action === 'dislike') {
-      removeFromQueue(item.articleId)
-      setTimeout(() => { setIsProcessing(false) }, 300)
-    } else {
-      setTimeout(() => { advanceQueue(); setIsProcessing(false) }, 300)
-    }
-  }, [item.articleId, isProcessing, mode])
+    setExitAnimation(action === 'dislike' ? 'card-exit-dislike' : 'card-exit-bookmark')
+    await window.electronAPI.recordInteraction(item.articleId, action)
+    removeFromQueue(item.articleId)
+    setTimeout(() => { setIsProcessing(false) }, 300)
+  }, [item.articleId, isProcessing, goBackCircular, advanceCircular, removeFromQueue, setCurrentArticleId])
 
   return (
-    <div ref={rootRef} className="relative z-0 w-full h-full flex flex-col items-center gap-2 overflow-hidden">
+    <div ref={rootRef} className="paper-card-stack relative z-0 w-full h-full flex flex-col items-center overflow-hidden">
       {mode === 'bookmarks' && (
-        <div className="no-drag w-full flex justify-between items-center px-1 shrink-0">
+        <div className="no-drag paper-bookmark-navigation w-full flex justify-between items-center shrink-0">
           <div className="flex gap-2">
             <button onClick={() => setView('bookmarks')} className="text-xs theme-text-muted hover:theme-text-secondary">← 返回列表</button>
             <button onClick={() => { useStore.getState().restorePushState(); setView('widget') }} className="text-xs theme-text-subtle hover:theme-text-secondary">返回推送</button>
@@ -129,8 +120,9 @@ export default function CardStack({ item, itemIndex, hasMore, mode = 'push' }: P
       </div>
       <div className="no-drag w-full shrink-0">
         <ActionBar onAction={handleAction} onRemoveBookmark={handleRemoveBookmark}
+          onNote={() => openWorkspace('note', { articleId: item.articleId, title: item.titleCn || item.title })}
           onAnalyze={() => {
-            window.electronAPI.openAnalysisBubble({ articleId: item.articleId, articleTitle: item.titleCn || item.title })
+            openWorkspace('ai', { articleId: item.articleId, title: item.titleCn || item.title })
           }}
           disabled={isProcessing} mode={mode} />
       </div>

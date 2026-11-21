@@ -1,5 +1,6 @@
 import crypto from 'crypto'
-import { TranslateInput, TranslateResult } from './types'
+import { TranslateInput, TranslateResult, TranslationUnavailableError } from './types'
+import { readSecretSetting } from '../secure-settings'
 
 function percentEncode(str: string): string {
   return encodeURIComponent(str)
@@ -9,17 +10,15 @@ function percentEncode(str: string): string {
 
 function getKeyId(): string {
   try {
-    const { getDb } = require('../db')
-    const row = getDb().prepare("SELECT value FROM settings WHERE key = 'aliyun_access_key_id'").get() as { value?: string } | undefined
-    if (row?.value) return row.value
+    const value = readSecretSetting('aliyun_access_key_id')
+    if (value) return value
   } catch {}
   return process.env.ALIYUN_ACCESS_KEY_ID || ''
 }
 function getSecret(): string {
   try {
-    const { getDb } = require('../db')
-    const row = getDb().prepare("SELECT value FROM settings WHERE key = 'aliyun_access_key_secret'").get() as { value?: string } | undefined
-    if (row?.value) return row.value
+    const value = readSecretSetting('aliyun_access_key_secret')
+    if (value) return value
   } catch {}
   return process.env.ALIYUN_ACCESS_KEY_SECRET || ''
 }
@@ -27,7 +26,7 @@ function getSecret(): string {
 async function translateOne(text: string): Promise<string> {
   const keyId = getKeyId()
   const secret = getSecret()
-  if (!keyId || !secret) throw new Error('阿里云 AK 未配置')
+  if (!keyId || !secret) throw new TranslationUnavailableError('阿里云 AK 未配置')
   const nonce = `${Date.now()}${Math.floor(Math.random() * 99999)}`
   const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
 
@@ -54,11 +53,13 @@ async function translateOne(text: string): Promise<string> {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
+    signal: AbortSignal.timeout(30_000),
   })
+  if (!resp.ok) throw new TranslationUnavailableError('Aliyun HTTP ' + resp.status)
   const data = await resp.json() as { Code?: string; Data?: { Translated?: string }; Message?: string }
 
-  if (data.Code && data.Code !== '200') {
-    throw new Error(`Aliyun ${data.Code}: ${data.Message || ''}`)
+  if (data.Code && String(data.Code) !== '200') {
+    throw new TranslationUnavailableError(`Aliyun ${data.Code}: ${data.Message || ''}`)
   }
   return data.Data?.Translated || ''
 }

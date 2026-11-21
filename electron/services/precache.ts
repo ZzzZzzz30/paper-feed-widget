@@ -5,8 +5,12 @@ import { getDb } from './db'
 import { fetchAbstractsForArticles } from './abstract-fetcher'
 import { BrowserWindow } from 'electron'
 import { translateArticle } from './translation/service'
+import { TranslateResult, TranslationFailedError, TranslationUnavailableError } from './translation/types'
+import { MIN_PUBLICATION_YEAR } from './publication-policy'
+import { sourceKey } from './push-manager'
 
 let running = true
+const TRANSLATION_RETRY_INTERVAL_MS = 5 * 60 * 60 * 1000
 
 function send(msg: string, data: Record<string, unknown>): void {
   const wins = BrowserWindow.getAllWindows()
@@ -42,16 +46,22 @@ async function prepareArticle(id: number): Promise<void> {
   if (!cur.title_cn) {
     console.log(`[DisplayCache] #${id} 翻译...`)
     db.prepare("UPDATE articles SET display_status='translating' WHERE id=?").run(id)
+    let result: TranslateResult
     try {
-      const result = await translateArticle({ articleId: id, title: cur.title, abstract: cur.abstract })
-      db.prepare("UPDATE articles SET title_cn=?,abstract_cn=?,display_status='display_ready' WHERE id=?")
-        .run(result.title_cn, result.abstract_cn, id)
-      console.log(`[DisplayCache] #${id} display_ready (${result.provider}): ${result.title_cn.slice(0, 30)}`)
-      send('article:translated', { articleId: id, titleCn: result.title_cn, abstractCn: result.abstract_cn })
+      result = await translateArticle({ articleId: id, title: cur.title, abstract: cur.abstract })
     } catch (err) {
+      if (!(err instanceof TranslationFailedError)) {
+        db.prepare("UPDATE articles SET display_status=NULL WHERE id=?").run(id)
+        throw err
+      }
       console.error(`[DisplayCache] #${id} 翻译失败:`, err)
       db.prepare("UPDATE articles SET display_status='failed' WHERE id=?").run(id)
+      return
     }
+    db.prepare("UPDATE articles SET title_cn=?,abstract_cn=?,display_status='display_ready' WHERE id=?")
+      .run(result.title_cn, result.abstract_cn, id)
+    console.log(`[DisplayCache] #${id} display_ready (${result.provider}): ${result.title_cn.slice(0, 30)}`)
+    send('article:translated', { articleId: id, titleCn: result.title_cn, abstractCn: result.abstract_cn })
   } else {
     db.prepare("UPDATE articles SET display_status='display_ready' WHERE id=?").run(id)
     console.log(`[DisplayCache] #${id} 已有缓存, display_ready`)
@@ -60,28 +70,24 @@ async function prepareArticle(id: number): Promise<void> {
 
 async function mainLoop(): Promise<void> {
   const db = getDb()
+  let lastSource = ''
   while (running) {
     try {
-      // 优先处理高 priority 未就绪文章（排除 failed 避免无限重试）
       const article = db.prepare(`
-        SELECT id FROM articles
-        WHERE display_status IS NULL OR display_status NOT IN ('display_ready','no_abstract','failed')
-        ORDER BY priority DESC, publication_date DESC LIMIT 1
-      `).get() as { id: number } | undefined
-
-      if (!article) {
-        // 低优扫全库（也排除 failed）
-        const low = db.prepare(`
-          SELECT id FROM articles
-          WHERE (display_status IS NULL OR display_status NOT IN ('display_ready','no_abstract','failed'))
-          ORDER BY publication_date DESC LIMIT 1
-        `).get() as { id: number } | undefined
-        if (!low) { await sleep(5000); continue }
-        await prepareArticle(low.id)
-      } else {
-        await prepareArticle(article.id)
-      }
+        SELECT a.id, ${sourceKey} AS venue_key FROM articles a
+        WHERE a.year >= ? AND (a.display_status IS NULL OR a.display_status NOT IN ('display_ready','no_abstract','failed'))
+        ORDER BY CASE WHEN venue_key <= ? THEN 1 ELSE 0 END, venue_key, a.id
+        LIMIT 1
+      `).get(MIN_PUBLICATION_YEAR, lastSource) as { id: number; venue_key: string } | undefined
+      if (!article) { await sleep(5000); continue }
+      await prepareArticle(article.id)
+      lastSource = article.venue_key
     } catch (err) {
+      if (err instanceof TranslationUnavailableError) {
+        console.warn('[DisplayCache] 暂无可用翻译服务，5 小时后重试:', err.message)
+        await sleep(TRANSLATION_RETRY_INTERVAL_MS)
+        continue
+      }
       console.error('[DisplayCache] 异常:', err)
       await sleep(5000)
     }

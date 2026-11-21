@@ -2,6 +2,12 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import './styles/globals.css'
+import './styles/paper-ui.css'
+import './styles/theme-channel'
+import './components/desktop-panel.css'
+import './styles/workspace.css'
+import './styles/island-appearance.css'
+import './styles/reading-type.css'
 
 window.addEventListener('error', (e) => console.error('[Renderer error]', e.error || e.message))
 window.addEventListener('unhandledrejection', (e) => console.error('[Renderer unhandledrejection]', e.reason))

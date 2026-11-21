@@ -10,3 +10,13 @@ test-backend.js
 setup.js
 另一个AI的回答.txt
 报错日志（手动记录）.txt
+
+# Local user data and private development notes
+.env.*
+!.env.example
+*.db-*
+*.db.tmp
+*.sqlite*
+/notes/
+*.log
+工作记录.md

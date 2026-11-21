@@ -1,6 +1,8 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useStore } from '../store'
 import type { Article } from '../types'
+import { ArrowLeft, Star } from 'lucide-react'
+import WindowHeader from './WindowHeader'
 
 export default function BookmarkList() {
   const setView = useStore(s => s.setView)
@@ -51,6 +53,7 @@ export default function BookmarkList() {
       abstract: a.abstract || '',
       abstractCn: a.abstract_cn || '',
       doi: a.extra_doi || '',
+      url: a.pdf_url || a.url || '',
       tldr: '',
       innovation: [] as string[],
       journal: a.journal || '',
@@ -71,11 +74,8 @@ export default function BookmarkList() {
   const filterBtn = (mode: 'all' | 'unread' | 'read', label: string) => (
     <button
       onClick={() => setFilterMode(mode)}
-      className={`no-drag text-[11px] px-2 py-0.5 rounded border transition-colors ${
-        filterMode === mode
-          ? 'theme-accent-bg theme-accent-text theme-accent-border'
-          : 'theme-bg-overlay theme-text-muted theme-border-light'
-      }`}
+      className="no-drag bookmark-filter"
+      aria-pressed={filterMode === mode}
     >
       {label}
     </button>
@@ -83,20 +83,14 @@ export default function BookmarkList() {
 
   return (
     <div className="window-safe-area">
-      <div className="window-frame theme-window">
-        <div className="window-titlebar bookmark-titlebar">
-          <span className="text-sm theme-text-secondary font-medium">⭐ 收藏列表</span>
-          <div className="window-control flex items-center gap-2">
-            {filterBtn('all', '全部')}
-            {filterBtn('unread', '未读')}
-            {filterBtn('read', '已读')}
-            <button onClick={handleBackToPush}
-              className="text-xs theme-text-muted hover:theme-text-secondary transition-colors ml-1">
-              ← 返回推送
-            </button>
-          </div>
+      <div className="window-frame theme-window paper-bookmarks">
+        <WindowHeader icon={<Star size={16} />} title="收藏列表">
+          <button onClick={handleBackToPush} title="返回推送" aria-label="返回推送"><ArrowLeft size={16} /></button>
+        </WindowHeader>
+        <div className="bookmark-filter-bar">
+          <div>{filterBtn('all', '全部')}{filterBtn('unread', '未读')}{filterBtn('read', '已读')}</div>
+          <span>{displayed.length} 篇</span>
         </div>
-
         <div className="window-body bookmark-window-body">
           <div className="w-full h-full min-h-0 overflow-y-auto">
         {loading ? (
@@ -121,7 +115,7 @@ export default function BookmarkList() {
                 tabIndex={0}
                 onClick={() => handleOpenArticle(article)}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleOpenArticle(article) }}
-                className={`w-full text-left px-4 py-3 border-b theme-border-light
+                className={`bookmark-entry w-full text-left px-4 py-3 border-b theme-border-light
                   hover:theme-bg-overlay transition-colors space-y-1 cursor-pointer ${isRead ? 'opacity-50' : ''}`}
               >
                 <div className="flex items-center gap-2">
@@ -131,7 +125,7 @@ export default function BookmarkList() {
                   </span>
                   {!isRead && <span className="text-[10px] theme-accent-text-soft">● 未读</span>}
                 </div>
-                <p className={`text-xs leading-relaxed line-clamp-2 ${isRead ? 'theme-text-muted' : 'theme-text-main'}`}>
+                <p className={`bookmark-entry-title text-xs leading-relaxed line-clamp-2 ${isRead ? 'theme-text-muted' : 'theme-text-main'}`}>
                   {article.title_cn || article.title}
                 </p>
                 <p className={`text-[11px] leading-relaxed line-clamp-2 ${isRead ? 'theme-text-subtle' : 'theme-text-muted'}`}>

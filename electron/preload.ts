@@ -9,6 +9,25 @@ const api = {
   removeBookmark: (articleId: number) =>
     ipcRenderer.invoke('bookmark:remove', articleId),
 
+  notes: {
+    onClosed: (callback: () => void) => {
+      const listener = () => callback()
+      ipcRenderer.on('notes:closed', listener)
+      return () => ipcRenderer.removeListener('notes:closed', listener)
+    },
+    open: (articleId: number) => ipcRenderer.invoke('notes:open', articleId),
+    read: (articleId?: number) => ipcRenderer.invoke('notes:read', articleId),
+    stage: (body: string, revision: number, articleId?: number) => ipcRenderer.invoke('notes:stage', body, revision, articleId),
+    flush: (articleId?: number) => ipcRenderer.invoke('notes:flush', articleId),
+    remove: (articleId?: number) => ipcRenderer.invoke('notes:remove', articleId),
+    close: (articleId?: number) => ipcRenderer.invoke('notes:close', articleId),
+    onSaveStatus: (callback: (status: { revision: number; articleId?: number; saved: boolean }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, status: Parameters<typeof callback>[0]) => callback(status)
+      ipcRenderer.on('notes:save-status', handler)
+      return () => { ipcRenderer.removeListener('notes:save-status', handler) }
+    },
+  },
+
   getSettings: () => ipcRenderer.invoke('settings:get'),
   updateSetting: (key: string, value: string) =>
     ipcRenderer.invoke('settings:update', { key, value }),
@@ -23,8 +42,28 @@ const api = {
     ipcRenderer.invoke('article:translate', articleId),
 
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
+  setWidgetCompact: (compact: boolean, stage: 'prepare' | 'finish', preview = false) => ipcRenderer.invoke('window:set-compact', compact, stage, preview),
+  onWidgetCompactSettled: (callback: (frame: Electron.Rectangle) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, frame: Electron.Rectangle) => callback(frame)
+    ipcRenderer.on('window:compact-settled', listener)
+    return () => ipcRenderer.removeListener('window:compact-settled', listener)
+  },
+  onWindowSurface: (callback: (layout: { frame: Electron.Rectangle; compact?: boolean }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, layout: { frame: Electron.Rectangle; compact?: boolean }) => callback(layout)
+    ipcRenderer.on('window:surface', listener)
+    return () => ipcRenderer.removeListener('window:surface', listener)
+  },
+  setWorkspaceExpanded: (expanded: boolean) => ipcRenderer.invoke('window:workspace', expanded),
+  onIslandDock: (callback: (dock: 'top' | 'left' | 'right' | 'free') => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, dock: 'top' | 'left' | 'right' | 'free') => callback(dock)
+    ipcRenderer.on('window:island-dock', listener)
+    return () => ipcRenderer.removeListener('window:island-dock', listener)
+  },
+  isIslandHovered: () => ipcRenderer.invoke('window:island-hovered'),
+  dragIsland: (stage: 'start' | 'move' | 'end' | 'cancel') => ipcRenderer.invoke('window:island-drag', stage),
+  resizeSurface: (stage: 'start' | 'end' | 'cancel', edge = '') => ipcRenderer.invoke('window:resize-surface', stage, edge),
+  setWindowMaterial: (material: string) => ipcRenderer.invoke('window:material', material),
   closeWindow: () => ipcRenderer.invoke('window:close'),
-  toggleAlwaysOnTop: () => ipcRenderer.invoke('window:toggleOnTop'),
 
   // 托盘导航
   onNavigate: (callback: (view: string) => void) => {
@@ -54,12 +93,18 @@ const api = {
   getBlockedPushIds: () => ipcRenderer.invoke('push:get-blocked-ids') as Promise<number[]>,
   savePushState: (payload: { ids: number[]; index: number }) => ipcRenderer.invoke('push:save-state', payload),
   loadPushState: () => ipcRenderer.invoke('push:load-state') as Promise<{ ids: number[]; index: number } | null>,
-  getTranslationUsage: () => ipcRenderer.invoke('translation:usage') as Promise<{ tencentChars: number; aliyunChars: number; ollamaChars: number; totalChars: number }>,
-  getTranslationCloudStatus: () => ipcRenderer.invoke('translation:cloud-status') as Promise<{ tencent: { hasOpen: boolean; hasArrearage: boolean } | null; aliyun: null }>,
+  getTranslationUsage: () => ipcRenderer.invoke('translation:usage') as Promise<{ aliyunChars: number; ollamaChars: number; totalChars: number }>,
   recoverTranslationProvider: (provider: string) => ipcRenderer.invoke('translation:recover', provider),
   resetTranslationStats: (provider: string) => ipcRenderer.invoke('translation:reset-stats', provider),
+  getAppDataInfo: () => ipcRenderer.invoke('app:data-info'),
+  openDataDirectory: () => ipcRenderer.invoke('app:open-data-directory'),
+  discoverJournal: (name: string) => ipcRenderer.invoke('journals:discover', name),
+  addJournal: (journal: { name: string; issn: string; rssUrl: string }) => ipcRenderer.invoke('journals:add', journal),
   getJournals: () => ipcRenderer.invoke('journals:get') as Promise<Array<{ name: string; issn: string; rssUrl: string }>>,
   saveJournals: (journals: Array<{ name: string; issn: string; rssUrl: string }>) => ipcRenderer.invoke('journals:save', journals),
+  getConferences: () => ipcRenderer.invoke('conferences:get') as Promise<Array<{ id: string; name: string; enabled: boolean }>>,
+  saveConferences: (conferences: Array<{ id: string; name?: string; enabled: boolean }>) => ipcRenderer.invoke('conferences:save', conferences),
+  syncConferences: () => ipcRenderer.invoke('conferences:sync') as Promise<{ inserted: number; errors: string[] }>,
   getQuotaOverview: () => ipcRenderer.invoke('translation:quota-overview') as Promise<any>,
 }
 

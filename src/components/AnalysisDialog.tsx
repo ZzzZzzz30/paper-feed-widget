@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
+import { ArrowUp, FileText, Sparkles } from 'lucide-react'
+import WindowHeader from './WindowHeader'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeSanitize from 'rehype-sanitize'
@@ -13,10 +15,10 @@ function MarkdownMessage({ content }: { content: string }) {
   )
 }
 
-interface Props { articleId: number; articleTitle: string; onClose: () => void; showCloseButton?: boolean }
+interface Props { articleId: number; articleTitle: string; onClose: () => void; showCloseButton?: boolean; embedded?: boolean }
 interface Message { role: 'user' | 'assistant'; content: string }
 
-export default function AnalysisDialog({ articleId, articleTitle, onClose, showCloseButton = true }: Props) {
+export default function AnalysisDialog({ articleId, articleTitle, onClose, showCloseButton = true, embedded = false }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -75,61 +77,44 @@ export default function AnalysisDialog({ articleId, articleTitle, onClose, showC
   }
 
   return (
-    <div className="h-full flex flex-col text-xs">
-      <div className="drag-region shrink-0 h-10 px-4 flex items-center justify-between border-b theme-border-light">
-        <div className="flex items-center gap-2">
-          <span>🤖</span>
-          <span className="font-medium theme-text-secondary">PaperFeed AI</span>
-        </div>
-        {showCloseButton && (
-          <button onClick={onClose} className="no-drag theme-text-muted hover:theme-text-main text-base">×</button>
-        )}
-      </div>
-
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
+    <div className="paper-analysis paper-ui">
+      {!embedded && <WindowHeader icon={<Sparkles size={16} />} title="AI 分析" onClose={showCloseButton ? onClose : undefined} />}
+      {!embedded && articleTitle && <div className="paper-article-context"><span>当前文章</span><p title={articleTitle}>{articleTitle}</p></div>}
+      <div className="paper-conversation">
         {loadedArticleId !== articleId ? (
-          <div className="h-full flex items-center justify-center">
-            <div className="theme-text-muted text-sm animate-pulse">新对话加载中...</div>
-          </div>
+          <div className="paper-ai-empty" role="status">正在加载对话…</div>
         ) : messages.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center gap-3">
-            <div className="theme-text-secondary leading-relaxed">我可以帮你快速读懂这篇文章</div>
-            <button onClick={handleQuickSummary} disabled={loading}
-              className="no-drag px-4 py-2 rounded-xl font-medium transition disabled:opacity-40"
-              style={{ background: 'rgb(var(--accent-rgb) / 0.18)', color: 'rgb(var(--accent-rgb) / 0.95)' }}>
-              📋 一键概括这篇文章
+          <div className="paper-ai-empty">
+            <div className="paper-ai-emblem"><Sparkles size={26} strokeWidth={1.5} /></div>
+            <h2>从一个问题开始</h2>
+            <p>快速理解这篇文章的研究思路、<br />方法与可以继续探索的问题。</p>
+            <button onClick={handleQuickSummary} disabled={loading} className="paper-primary no-drag">
+              <FileText size={16} />{loading ? '正在概括…' : '一键概括这篇文章'}
             </button>
-            <div className="text-[10px] theme-text-subtle leading-relaxed">
-              也可以问：这篇文章到底研究什么？<br />这个术语是什么意思？这个选题能怎么扩展？
-            </div>
+            <span className="paper-ai-hint">也可以问问研究方法、术语或选题方向</span>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="paper-messages">
             {messages.map((m, i) => (
-              <div key={i} className="leading-relaxed">
-                <div className="text-[10px] mb-1 theme-text-subtle">{m.role === 'assistant' ? 'AI' : '你'}</div>
-                {m.role === 'assistant' ? (
-                  <MarkdownMessage content={m.content} />
-                ) : (
-                  <div className="whitespace-pre-wrap selectable-text theme-text-main">{m.content}</div>
-                )}
+              <div key={i} className="paper-message" data-role={m.role}>
+                <div className="paper-message-role">{m.role === 'assistant' ? <><Sparkles size={13} /> PaperFeed AI</> : '你'}</div>
+                {m.role === 'assistant' ? <MarkdownMessage content={m.content} /> :
+                  <div className="whitespace-pre-wrap selectable-text">{m.content}</div>}
               </div>
             ))}
-            {loading && <div className="theme-text-muted animate-pulse">AI 正在阅读这篇文章...</div>}
+            {loading && <div className="paper-ai-loading" role="status">AI 正在阅读这篇文章…</div>}
           </div>
         )}
         <div ref={bottomRef} />
       </div>
-
-      <div className="shrink-0 p-3 flex gap-2 border-t theme-border-light">
-        <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSend()}
-          placeholder="有问题，尽管问" disabled={loading}
-          className="no-drag flex-1 rounded-xl px-3 py-2 text-xs theme-text-secondary outline-none disabled:opacity-40 theme-bg-overlay border theme-border" />
-        <button onClick={handleSend} disabled={loading || !input.trim()}
-          className="no-drag shrink-0 rounded-xl px-3 py-2 text-xs font-medium disabled:opacity-35"
-          style={{ background: 'rgb(var(--accent-rgb) / 0.18)', color: 'rgb(var(--accent-rgb) / 0.95)' }}>
-          发送
-        </button>
+      <div className="paper-composer">
+        <div className="paper-composer-field">
+          <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSend()}
+            placeholder="针对这篇文章提问…" aria-label="向 AI 提问" disabled={loading} className="no-drag" />
+          <button onClick={handleSend} disabled={loading || !input.trim()} aria-label="发送" title="发送"
+            className="no-drag"><ArrowUp size={17} /></button>
+        </div>
+        <div className="paper-composer-hint">Enter 发送</div>
       </div>
     </div>
   )

@@ -1,0 +1,52 @@
+
+/* A stable UI font, with the user's explicit font selection taking precedence. */
+:root:not([data-font]), :root[data-font="system"] {
+  --app-font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif !important;
+}
+.paper-ui { font-kerning: normal; text-rendering: optimizeLegibility; }
+
+/* Only the translated title receives the stronger theme-specific accent. */
+:root { --reading-title-color: 158 190 221; }
+:root[data-theme="paper"] { --reading-title-color: 58 91 115; }
+:root[data-theme="light"] { --reading-title-color: 47 88 134; }
+:root[data-theme="midnight"] { --reading-title-color: 165 185 231; }
+:root[data-theme="forest"] { --reading-title-color: 151 196 168; }
+:root[data-theme="rose"] { --reading-title-color: 221 172 192; }
+.desktop-panel .paper-article-scroll {
+  padding: 23px 22px 30px;
+  font-family: var(--app-font-family);
+}
+.desktop-panel .paper-article-meta { margin-bottom: 15px; gap: 7px; font-size: 11px; line-height: 1.5; align-items: flex-start; }
+.desktop-panel :is(.paper-source, .paper-year) { padding: 3px 7px; border-radius: 4px; font-weight: 550; }
+.desktop-panel .paper-article-title {
+  font-size: calc(var(--app-font-size) + 2px);
+  font-weight: 650;
+  line-height: 1.34;
+  letter-spacing: -.018em;
+  text-wrap: pretty;
+}
+.desktop-panel .paper-article-translation {
+  color: rgb(var(--reading-title-color));
+  margin-top: 14px;
+  font-weight: 600;
+  font-size: var(--app-font-size);
+  line-height: 1.5;
+  letter-spacing: .005em;
+  text-wrap: pretty;
+}
+.desktop-panel .paper-article-divider { margin: 21px 0 18px; }
+.desktop-panel .paper-article-abstract {
+  line-height: 1.78; letter-spacing: .012em;
+  color: rgb(var(--paper-ink) / .86);
+  text-align: start;
+  line-break: strict;
+}
+.desktop-panel .paper-article-link { margin-top: 22px; font-size: 11px; line-height: 1.6; }
+.desktop-panel .paper-bookmark-navigation { padding: 8px 16px; min-height: 34px; }
+.desktop-panel .paper-bookmark-navigation :is(button, span) { font-size: 11px; line-height: 1.5; }
+.workspace-side .paper-conversation { padding: 20px 22px; }
+.workspace-side .paper-message { line-height: 1.75; }
+.workspace-side .paper-message-role { margin-bottom: 10px; letter-spacing: .015em; }
+@media (max-width: 380px) {
+  .desktop-panel .paper-article-scroll { padding: 18px 17px 24px; }
+}

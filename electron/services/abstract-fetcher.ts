@@ -1,12 +1,17 @@
 import { getDb } from './db'
+import { readSecretSetting } from './secure-settings'
+import { findExactJournalArticle, normalizeDoi, type CrossRefArticleCandidate } from './article-matching'
 
 /**
  * 步骤1: CrossRef 标题搜索 → 获取 DOI + 摘要
  */
-async function queryCrossRef(title: string, retries = 2): Promise<{ doi: string; abstract: string } | null> {
+async function queryCrossRef(title: string, issn: string, year: number, doi?: string, type: 'journal-article' | 'proceedings-article' = 'journal-article', retries = 2): Promise<{ doi: string; abstract: string } | null> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const url = `https://api.crossref.org/works?query.title=${encodeURIComponent(title)}&rows=3&select=DOI,abstract,type`
+      if (!issn && !doi && type !== 'proceedings-article') return null
+      const url = doi
+        ? `https://api.crossref.org/works/${encodeURIComponent(doi)}`
+        : `https://api.crossref.org/works?query.title=${encodeURIComponent(title)}&filter=${issn ? `issn:${encodeURIComponent(issn)},` : ''}type:${type}&rows=10&select=DOI,title,abstract,type,ISSN,published,published-print,published-online`
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 15_000)
       const response = await fetch(url, {
@@ -16,11 +21,13 @@ async function queryCrossRef(title: string, retries = 2): Promise<{ doi: string;
       clearTimeout(timeout)
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const data = await response.json() as {
-        message: { items: Array<{ DOI?: string; abstract?: string; type?: string }> }
+        message: CrossRefArticleCandidate | { items?: CrossRefArticleCandidate[] }
       }
-      const items = data.message?.items || []
-      const journalItem = items.find(i => i.type === 'journal-article' && i.DOI)
-      const best = journalItem || items.find(i => i.DOI)
+      const message = data.message
+      const items = Array.isArray((message as { items?: CrossRefArticleCandidate[] })?.items)
+        ? (message as { items: CrossRefArticleCandidate[] }).items
+        : message ? [message as CrossRefArticleCandidate] : []
+      const best = findExactJournalArticle(title, items, { issn: issn || undefined, year: year || undefined, doi, type })
       if (!best?.DOI) return null
       return { doi: best.DOI, abstract: best.abstract || '' }
     } catch (err) {
@@ -41,12 +48,7 @@ async function queryCrossRef(title: string, retries = 2): Promise<{ doi: string;
 async function queryScienceDirectDOI(doi: string): Promise<string | null> {
   // 从 DB 或环境变量读取 API Key
   let apiKey = ''
-  try {
-    const { getDb } = require('./db')
-    const db = getDb()
-    const row = db.prepare("SELECT value FROM settings WHERE key = 'elsevier_api_key'").get() as { value: string } | undefined
-    apiKey = row?.value || ''
-  } catch {}
+  try { apiKey = readSecretSetting('elsevier_api_key') } catch {}
   if (!apiKey) apiKey = process.env.ELSEVIER_API_KEY || ''
   if (!apiKey) return null
   try {
@@ -75,33 +77,39 @@ export async function fetchAbstractsForArticles(articleIds: number[]): Promise<n
   for (const id of articleIds) {
     try {
       const existing = db.prepare(
-        'SELECT title, abstract, extra_doi FROM articles WHERE id = ?'
-      ).get(id) as { title: string; abstract: string; extra_doi: string } | undefined
+        'SELECT title, abstract, extra_doi, issn, year, source_type FROM articles WHERE id = ?'
+      ).get(id) as { title: string; abstract: string; extra_doi: string; issn: string; year: number; source_type: string } | undefined
 
       if (!existing) continue
-      if (existing.abstract && existing.extra_doi) continue
+      const knownDoi = normalizeDoi(existing.extra_doi)
+      const abstractLength = (existing.abstract || '').trim().length
+      if (abstractLength >= 50 && knownDoi) continue
 
       console.log(`[Abstract] #${id}: ${existing.title.slice(0, 50)}...`)
 
       // 步骤1: CrossRef
-      const cr = await queryCrossRef(existing.title)
-      if (!cr) continue
+      const type = existing.source_type === 'conference' ? 'proceedings-article' : 'journal-article'
+      const cr = await queryCrossRef(existing.title, existing.issn, existing.year, knownDoi || undefined, type)
 
-      const doi = cr.doi
-      let abstract = cr.abstract
+      const doi = knownDoi || cr?.doi || ''
+      if (!doi) continue
+      let abstract = cr?.abstract || ''
 
-      // 步骤2: 如果 CrossRef 没摘要，用 DOI 调 ScienceDirect
-      if (!abstract && doi.startsWith('10.1016/')) {
+      // A DOI already verified at ingest can be used even when Crossref is unavailable.
+      if (abstractLength < 50 && abstract.trim().length < 50 && doi.startsWith('10.1016/')) {
         const sdAbs = await queryScienceDirectDOI(doi)
-        if (sdAbs) abstract = sdAbs
+        if (sdAbs && sdAbs.trim().length > abstract.trim().length) abstract = sdAbs
       }
 
       const updates: string[] = []
       const values: string[] = []
 
-      if (abstract && !existing.abstract) {
+      if (abstractLength < 50 && abstract.trim().length > abstractLength) {
         updates.push('abstract = ?')
         values.push(abstract)
+        if (abstract.trim().length >= 50) {
+          updates.push("display_status = CASE WHEN display_status IN ('no_abstract','failed') THEN NULL ELSE display_status END")
+        }
         console.log(`[Abstract] #${id} 摘要: ${abstract.slice(0, 60)}...`)
       }
       if (doi && !existing.extra_doi) {
@@ -137,7 +145,7 @@ export async function fetchAbstractsForArticles(articleIds: number[]): Promise<n
  */
 async function fetchGraphicalAbstract(doi: string): Promise<string | null> {
   let apiKey = ''
-  try { const db = getDb(); const row = db.prepare("SELECT value FROM settings WHERE key='elsevier_api_key'").get() as {value:string}|undefined; apiKey = row?.value || '' } catch {}
+  try { apiKey = readSecretSetting('elsevier_api_key') } catch {}
   if (!apiKey) apiKey = process.env.ELSEVIER_API_KEY || ''
   if (!apiKey) return null
   if (!doi.startsWith('10.1016/')) return null // 非 Elsevier 文章

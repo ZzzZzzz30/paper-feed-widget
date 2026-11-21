@@ -1,0 +1,164 @@
+
+/* A compact island and a small hover preview share one stationary top edge. */
+.paper-island-surface {
+  position: absolute; inset: 0; overflow: hidden; border-radius: inherit;
+  background: var(--material-image), var(--material-surface);
+  box-shadow: inset 0 0 0 1px var(--paper-line);
+  color: rgb(var(--paper-ink));
+}
+.desktop-panel .paper-island {
+  inset: 0 0 auto; height: 38px; border-radius: 0; box-shadow: none;
+  background: transparent; color: inherit;
+}
+.desktop-panel[data-phase="expanded"] .paper-island-surface { visibility: hidden; }
+.desktop-panel[data-phase="expanded"] .paper-island-surface { opacity: 0; }
+.desktop-panel:not([data-phase="expanded"]) .desktop-panel-content { opacity: 0; }
+.desktop-panel:is([data-phase="compact"], [data-phase="preview"], [data-phase="peeking"]) .desktop-panel-content { visibility: hidden; }
+.desktop-panel:is([data-phase="preview"], [data-phase="peeking"]) .paper-morph-surface { border-radius: 0 0 16px 16px; }
+.desktop-panel:is([data-phase="opening"], [data-phase="closing"], [data-phase="peeking"]) .paper-island-surface { pointer-events: none; }
+.island-preview-content {
+  position: absolute; inset: 38px 0 0; width: 100%; padding: 9px 16px 13px;
+  display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+  text-align: left; border: 0; cursor: pointer; opacity: 0;
+}
+.desktop-panel[data-preview-visible="false"] .island-preview-content { visibility: hidden; }
+.desktop-panel:is([data-phase="preview"], [data-phase="opening"]) .island-preview-content { opacity: 1; }
+.island-preview-content > * { flex-shrink: 0; }
+.island-preview-meta { font-size: 11px; line-height: 1.35; color: rgb(var(--paper-ink) / .58); white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.island-preview-content strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 14px; line-height: 1.45; font-weight: 600; }
+.island-preview-summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 12px; line-height: 1.5; color: rgb(var(--paper-ink) / .67); }
+.island-preview-footer { display: flex; align-items: center; justify-content: flex-end; gap: 5px; margin-top: 2px; font-size: 11px; color: rgb(var(--paper-ink) / .58); }
+.island-preview-content:hover .island-preview-footer { color: rgb(var(--ui-accent)); }
+
+/* Quiet text hierarchy, one accent per appearance. Error/status colors stay semantic. */
+:root {
+  --ui-accent: 165 190 180;
+  --paper-source: var(--ui-accent);
+  --paper-violet: var(--ui-accent);
+  --paper-title-cn: var(--ui-accent);
+}
+:root:is([data-theme="paper"], [data-theme="light"]) {
+  --ui-accent: 88 105 96;
+  --paper-source: var(--ui-accent);
+  --paper-violet: var(--ui-accent);
+  --paper-title-cn: var(--ui-accent);
+}
+:root[data-theme="paper"] { --ui-accent: 110 96 72; }
+:root:is([data-theme="midnight"], [data-theme="forest"], [data-theme="rose"]) {
+  --paper-source: var(--ui-accent); --paper-violet: var(--ui-accent); --paper-title-cn: var(--ui-accent);
+}
+.desktop-panel .paper-article-translation { color: rgb(var(--paper-ink) / .84); font-weight: 550; }
+.desktop-panel .paper-source { color: rgb(var(--paper-ink) / .72); background: rgb(var(--paper-ink) / .055); font-weight: 550; }
+.desktop-panel .paper-year { color: rgb(var(--paper-ink) / .58); background: rgb(var(--paper-ink) / .055); }
+.desktop-panel .paper-actions button[data-tone] svg { color: rgb(var(--paper-ink) / .64); }
+.desktop-panel .paper-actions button:hover svg { color: rgb(var(--ui-accent)); }
+.desktop-panel .workspace-tabs button:nth-child(2)[aria-pressed="true"] { color: rgb(var(--ui-accent)); background: rgb(var(--ui-accent) / .1); }
+.desktop-panel .paper-ai-emblem { background: rgb(var(--paper-ink) / .045); border-color: var(--paper-line); color: rgb(var(--paper-ink) / .6); }
+.desktop-panel .paper-message-role { color: rgb(var(--paper-ink) / .6); }
+.desktop-panel .paper-header-name svg { color: rgb(var(--paper-ink) / .65); }
+[data-material="smoked"] .desktop-panel :is(.workspace-header, .paper-header) .paper-header-name svg,
+[data-material="smoked"] .desktop-panel .paper-island svg:first-child { color: rgb(var(--paper-ink) / .7); }
+.desktop-panel .paper-island svg:first-child { color: rgb(var(--paper-ink) / .7); }
+
+/* Appearance cards show one complete, coordinated surface. */
+.appearance-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.appearance-heading > span { color: rgb(var(--paper-ink) / .55); font-size: 11px; }
+.appearance-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.appearance-options > button {
+  min-width: 0; padding: 9px; text-align: left; border: 1px solid var(--paper-line); border-radius: 8px;
+  background: rgb(var(--paper-panel) / .3);
+}
+.appearance-options > button:hover { background: rgb(var(--paper-ink) / .035); }
+.appearance-options > button[aria-pressed="true"] { border-color: rgb(var(--ui-accent)); box-shadow: inset 0 0 0 1px rgb(var(--ui-accent)); }
+.appearance-thumbnail { display: block; width: 100%; height: 66px; border-radius: 5px; border: 1px solid; overflow: hidden; }
+.appearance-thumbnail-bar { display: flex; justify-content: space-between; align-items: center; height: 21px; padding: 0 7px; font-size: 10px; border-bottom: 1px solid rgb(128 128 128 / .12); }
+.appearance-thumbnail-body { display: flex; flex-direction: column; gap: 5px; padding: 9px; }
+.appearance-thumbnail-body i { display: block; width: 90%; height: 3px; border-radius: 2px; background: currentColor; opacity: .2; }
+.appearance-thumbnail-body i:first-child { width: 66%; opacity: .5; }
+.appearance-thumbnail-body i:last-child { width: 78%; }
+.appearance-thumbnail[data-preset="paper"] .appearance-thumbnail-bar { background-image: repeating-linear-gradient(12deg, #b4a0820a 0, #b4a0820a 1px, transparent 1px, transparent 3px) !important; }
+.appearance-thumbnail:is([data-preset="smoke"], [data-preset="frost"]) .appearance-thumbnail-bar { background-image: linear-gradient(120deg, #ffffff20, transparent) !important; }
+.appearance-option-label { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 9px; }
+.appearance-option-label strong { font-size: 12px; font-weight: 600; }
+.appearance-options small { display: block; margin-top: 3px; font-size: 10px; line-height: 1.5; color: rgb(var(--paper-ink) / .58); }
+.appearance-radio { width: 12px; height: 12px; flex: none; border-radius: 50%; border: 1px solid var(--paper-line); }
+.appearance-options [aria-pressed="true"] .appearance-radio { border: 3px solid rgb(var(--ui-accent)); background: rgb(var(--paper-reading)); }
+
+/* The square edge follows the screen edge to which the island is attached. */
+.desktop-panel[data-dock="left"] { --island-radius: 0 16px 16px 0; }
+.desktop-panel[data-dock="right"] { --island-radius: 16px 0 0 16px; }
+.desktop-panel[data-dock="top"] { --island-radius: 0 0 16px 16px; }
+.desktop-panel[data-dock="free"] { --island-radius: 16px; }
+.desktop-panel:is([data-phase="compact"], [data-phase="preview"], [data-phase="peeking"]) .paper-morph-surface {
+  border-radius: var(--island-radius, 16px);
+}
+.desktop-panel .paper-island { -webkit-app-region: no-drag; touch-action: none; }
+.desktop-panel .paper-island * { pointer-events: none; }
+
+/* Compact notch: a 30px body with small concave shoulders at the top edge. */
+:root[data-appearance="graphite"] {
+  --paper-panel: 9 10 11;
+  --paper-reading: 21 22 24;
+  --paper-line: rgb(255 255 255 / .10);
+}
+.desktop-panel .paper-island { height: 30px; min-height: 0; padding-inline: 14px; font-size: 12px; gap: 8px; }
+.island-preview-content { top: 30px; }
+.desktop-panel[data-dock="top"]:is([data-phase="compact"], [data-phase="preview"], [data-phase="peeking"]) .paper-morph-surface {
+  border-radius: 0;
+}
+.desktop-panel[data-dock="top"] .paper-island-surface {
+  background: none; box-shadow: none; border-radius: 0; isolation: isolate;
+}
+.desktop-panel[data-dock="top"] .paper-island-surface::before {
+  content: ""; position: absolute; inset: 0 8px; z-index: -1; pointer-events: none;
+  border-radius: 0 0 var(--preview-bottom-radius, 12px) var(--preview-bottom-radius, 12px);
+  background: var(--material-image), var(--material-surface);
+  box-shadow: inset 0 -1px 0 var(--paper-line);
+}
+.desktop-panel[data-dock="top"] .paper-island-surface::after {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(circle at 0 100%, transparent 7.5px, var(--material-surface) 8px) left top / 8px 8px no-repeat,
+    radial-gradient(circle at 100% 100%, transparent 7.5px, var(--material-surface) 8px) right top / 8px 8px no-repeat;
+}
+.desktop-panel[data-dock="top"] .paper-island { left: 8px; right: 8px; width: calc(100% - 16px); background: transparent; }
+.desktop-panel[data-dock="top"] .island-preview-content { left: 8px; right: 8px; width: calc(100% - 16px); }
+.desktop-panel[data-dock="left"] { --island-radius: 0 12px 12px 0; }
+.desktop-panel[data-dock="right"] { --island-radius: 12px 0 0 12px; }
+.desktop-panel[data-dock="free"] { --island-radius: 15px; }
+
+/* Keep the compact notch unchanged; only the hover card gets fuller lower corners. */
+.desktop-panel[data-island-preview="true"] { --preview-bottom-radius: 28px; }
+.desktop-panel[data-island-preview="true"][data-dock="left"] { --island-radius: 0 12px 28px 0; }
+.desktop-panel[data-island-preview="true"][data-dock="right"] { --island-radius: 12px 0 0 28px; }
+.desktop-panel[data-island-preview="true"][data-dock="free"] { --island-radius: 15px 15px 28px 28px; }
+@media (prefers-reduced-motion: reduce) {
+  .desktop-panel[data-dock="top"] .paper-island-surface::before { transition: none; }
+}
+
+/* Side docking swaps the island's proportions and keeps the attached edge quiet. */
+.desktop-panel:is([data-dock="left"], [data-dock="right"]):is([data-phase="compact"], [data-phase="preview"], [data-phase="peeking"]) .paper-morph-surface { border-radius: var(--island-radius); }
+.desktop-panel[data-dock="left"] .paper-island,
+.desktop-panel[data-dock="right"] .paper-island {
+  width: 38px; height: 100%; min-height: 0; padding: 14px 0;
+  flex-direction: column; gap: 9px; border-radius: inherit;
+}
+.desktop-panel[data-dock="left"] .paper-island span,
+.desktop-panel[data-dock="right"] .paper-island span {
+  margin: auto 0; writing-mode: vertical-rl; text-orientation: mixed;
+  letter-spacing: .04em;
+}
+.desktop-panel[data-dock="left"] .paper-island svg:last-child,
+.desktop-panel[data-dock="right"] .paper-island svg:last-child { transform: rotate(90deg); }
+.desktop-panel[data-dock="left"] .island-preview-content,
+.desktop-panel[data-dock="right"] .island-preview-content {
+  inset: 0; top: 0; width: auto; height: 100%; padding: 15px 16px 15px;
+  border-top: 0; justify-content: flex-start;
+}
+.desktop-panel[data-dock="left"] .island-preview-content { left: 38px; right: 0; }
+.desktop-panel[data-dock="right"] .island-preview-content { left: 0; right: 38px; }
+.desktop-panel[data-dock="left"] .paper-island,
+.desktop-panel[data-dock="left"] .island-preview-content { border-radius: 0 12px 12px 0; }
+.desktop-panel[data-dock="right"] .paper-island,
+.desktop-panel[data-dock="right"] .island-preview-content { border-radius: 12px 0 0 12px; }
+.desktop-panel[data-dock="right"] .paper-island { left: auto; right: 0; }

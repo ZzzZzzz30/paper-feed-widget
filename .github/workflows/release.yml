@@ -1,0 +1,43 @@
+name: Build Windows release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Check version and release tag
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          if ($env:GITHUB_REF_NAME -ne "v$version" -or $version -notmatch '^\d+\.\d+\.\d+$') {
+            throw 'Run this workflow on a version tag that matches package.json, e.g. v0.2.0.'
+          }
+      - run: npx tsc --noEmit
+      - run: npm run build:win
+      - name: Publish installer and update manifest
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = node -p "require('./package.json').version"
+          $installer = Join-Path release "PaperFeed-Setup-$version.exe"
+          $blockmap = "$installer.blockmap"
+          $manifest = Join-Path release 'latest.yml'
+          foreach ($asset in @($installer, $blockmap, $manifest)) {
+            if (-not (Test-Path $asset)) { throw "Missing update asset: $asset" }
+          }
+          $assets = @($installer, $blockmap, $manifest)
+          gh release create $env:GITHUB_REF_NAME @assets --verify-tag --title "PaperFeed $env:GITHUB_REF_NAME" --generate-notes
+          if ($LASTEXITCODE -ne 0) { throw 'Release upload failed.' }

@@ -1,0 +1,258 @@
+.note-window {
+  --note-edge: rgb(var(--border-rgb) / 0.27);
+  --note-muted: rgb(var(--text-main-rgb) / 0.69);
+  --note-danger: #fca5a5;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--note-edge);
+  background: rgb(var(--card-bg-rgb));
+  color: rgb(var(--text-main-rgb));
+  color-scheme: dark;
+}
+
+:is([data-theme="light"], [data-theme="paper"]) .note-window {
+  --note-edge: rgb(var(--border-rgb) / 0.19);
+  --note-danger: #9f2626;
+  color-scheme: light;
+}
+
+.note-header,
+.note-title,
+.note-toolbar,
+.note-confirm,
+.note-status {
+  flex-shrink: 0;
+}
+
+.note-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 38px;
+  padding-inline: 14px 7px;
+  border-bottom: 1px solid var(--note-edge);
+  background: rgb(var(--panel-bg-rgb));
+  color: var(--note-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.note-header-controls,
+.note-toolbar,
+.note-confirm,
+.note-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.note-title {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--note-edge);
+}
+
+.note-title h1 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.note-toolbar {
+  height: 37px;
+  padding-inline: 10px;
+  border-bottom: 1px solid var(--note-edge);
+}
+
+.note-tool,
+.note-select,
+.note-action {
+  border-radius: 5px;
+  color: var(--note-muted);
+}
+
+.note-tool {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 29px;
+  height: 28px;
+}
+
+.note-tool:disabled,
+.note-action:disabled {
+  opacity: 0.45;
+}
+
+.note-tool:is(:hover, [data-active="true"], [aria-expanded="true"]):not(:disabled),
+.note-select:hover,
+.note-action:hover:not(:disabled) {
+  background: rgb(var(--text-main-rgb) / 0.08);
+}
+
+.note-window :is(button, select):focus-visible {
+  outline: 2px solid rgb(var(--accent-rgb));
+  outline-offset: -2px;
+}
+
+.note-select {
+  height: 28px;
+  margin-inline-start: 3px;
+  padding-inline: 6px;
+  font-size: 12px;
+}
+
+.note-select option {
+  color: rgb(var(--text-main-rgb));
+  background: rgb(var(--panel-bg-rgb));
+}
+
+.note-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
+  font-size: 12px;
+}
+
+.note-menu {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + 5px);
+  right: 0;
+  padding: 3px;
+  border: 1px solid var(--note-edge);
+  border-radius: 6px;
+  background: rgb(var(--panel-bg-rgb));
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.16);
+  white-space: nowrap;
+}
+
+.note-menu .note-action {
+  min-height: 28px;
+}
+
+.note-confirm,
+.note-message,
+.note-status {
+  color: var(--note-muted);
+  font-size: 12px;
+}
+
+.note-confirm {
+  flex-wrap: wrap;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--note-edge);
+}
+
+.note-message {
+  padding: 8px 16px;
+}
+
+.note-status {
+  min-height: 27px;
+  padding-inline: 14px;
+  border-top: 1px solid var(--note-edge);
+  background: rgb(var(--panel-bg-rgb));
+}
+
+.note-danger {
+  color: var(--note-danger);
+}
+
+.note-prose {
+  min-height: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+  font-size: var(--note-font-size, 22px);
+  line-height: 1.6;
+}
+
+.note-preview {
+  overflow: auto;
+  padding: 12px 16px 20px;
+}
+
+.note-preview :is(p, pre, blockquote, ul, ol) {
+  margin-bottom: 0.6em;
+}
+
+.note-preview ul, .note-preview ol { padding-inline-start: 1.45em; }
+.note-preview ul { list-style: disc; }
+.note-preview ol { list-style: decimal; }
+.note-preview li > :is(ul, ol) { margin-bottom: 0; }
+.note-preview a { text-decoration: underline; }
+.note-preview pre { overflow-x: auto; }
+.note-preview blockquote { border-inline-start: 2px solid var(--note-edge); padding-inline-start: 0.75em; }
+
+.note-window :is(.note-preview h1, .note-preview h2, .note-preview h3,
+  .note-preview h4, .note-preview h5, .note-preview h6, [data-heading]) {
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.note-preview :is(h1, h2, h3, h4, h5, h6) { margin: 0.65em 0 0.35em; }
+.note-preview > :first-child { margin-top: 0; }
+.note-window :is(.note-preview h1, [data-heading="1"]) { font-size: 1.5em; }
+.note-window :is(.note-preview h2, [data-heading="2"]) { font-size: 1.3em; }
+.note-window :is(.note-preview h3, [data-heading="3"]) { font-size: 1.15em; }
+
+/* The note editor uses the same frame and material as the reader and AI window. */
+.note-window.paper-ui {
+  --note-edge: var(--paper-line);
+  --note-muted: rgb(var(--paper-ink) / .70);
+  --note-danger: rgb(var(--paper-red));
+  width: calc(100% - 4px); height: calc(100% - 4px); margin: 2px;
+  border-radius: 10px; background: rgb(var(--paper-reading)); color: rgb(var(--paper-ink));
+}
+.note-window .paper-header { padding-left: 14px; }
+.note-window .note-title { padding: 12px 18px 14px; background: rgb(var(--paper-reading)); }
+.note-context-label { display: block; margin-bottom: 5px; color: rgb(var(--paper-source)); font-size: 11px; font-weight: 600; }
+.note-window .note-title h1 { font-size: 14px; line-height: 1.5; }
+.note-window .note-toolbar { height: 43px; padding-inline: 12px; gap: 5px; background: rgb(var(--paper-panel) / .65); }
+.note-window .note-tool { width: 29px; height: 29px; border-radius: 6px; }
+.note-window .note-tool[data-active="true"] { color: rgb(var(--paper-source)); background: rgb(var(--paper-source) / .1); }
+.note-window .note-select { margin-left: 6px; border-left: 1px solid var(--paper-line); border-radius: 0; padding-inline: 10px; }
+.note-window .note-status { min-height: 30px; background: rgb(var(--paper-panel)); font-size: 11px; padding-inline: 16px; }
+.note-window .note-status svg { color: rgb(var(--paper-source)); }
+.note-window .note-preview { padding: 16px 20px 24px; }
+.note-window .cm-content { padding: 16px 20px 24px !important; }
+.note-window .note-menu { background: rgb(var(--paper-panel)); }
+.note-window .note-select option { background: rgb(var(--paper-panel)); color: rgb(var(--paper-ink)); }
+
+.note-window .note-select { background: transparent; }
+
+/* A single size control lives in the existing upper utility row in both modes. */
+.note-font-control { position: relative; flex: none; display: inline-flex; align-items: center; margin-right: 6px; }
+.note-font-control label {
+  display: inline-flex; height: 27px; align-items: center; gap: 3px;
+  padding-left: 7px; border: 1px solid var(--note-edge); border-radius: 5px;
+  color: var(--note-muted); background: rgb(var(--paper-ink) / .025);
+}
+.note-font-control label > span { font-size: 11px; font-weight: 600; }
+.note-font-control select {
+  width: 43px; height: 25px; padding: 0 2px 0 3px; background: transparent;
+  font-size: 12px; font-variant-numeric: tabular-nums; color: inherit; cursor: pointer;
+}
+.note-font-control select option { background: rgb(var(--paper-panel)); color: rgb(var(--paper-ink)); }
+.note-font-control select:disabled { opacity: .5; }
+.note-font-error {
+  position: absolute; z-index: 10; top: 32px; right: 0; width: 170px;
+  padding: 7px 9px; border: 1px solid var(--note-edge); border-radius: 5px;
+  background: rgb(var(--paper-panel)); color: var(--note-danger); font-size: 11px;
+}
+.note-window .note-prose { line-height: 1.72; letter-spacing: .008em; }
+.note-window .note-preview { padding: 20px 22px 28px; }
+.note-window .cm-content { padding: 20px 22px 28px !important; }
+.note-window .note-preview :is(p, pre, blockquote, ul, ol) { margin-bottom: .8em; }
+.note-window .note-preview li + li { margin-top: .18em; }
+.note-window .note-toolbar { gap: 6px; }
+.note-window .note-inline-controls { height: 37px; }

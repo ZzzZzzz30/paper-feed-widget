@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import AnalysisDialog from './AnalysisDialog'
+import { applyAppearance, getAppearance } from '../styles/appearance'
 
 function getArticleIdFromLocation(): number | null {
   const hash = window.location.hash || ''
@@ -15,6 +16,7 @@ function getArticleIdFromLocation(): number | null {
 }
 
 export default function AnalysisBubblePage() {
+  const articleTitle = new URLSearchParams(window.location.hash.split('?')[1] || '').get('title') || ''
   const [articleId, setArticleId] = useState<number | null>(null)
 
   useEffect(() => {
@@ -32,10 +34,7 @@ export default function AnalysisBubblePage() {
     })
 
     window.electronAPI?.getSettings().then(settings => {
-      const theme = settings.theme || 'auto'
-      if (['light','midnight','forest','rose','paper'].includes(theme)) {
-        document.documentElement.setAttribute('data-theme', theme)
-      }
+      applyAppearance(getAppearance(settings))
       const fs = settings.font_size
       if (fs) document.documentElement.style.setProperty('--app-font-size', fs + 'px')
       const ff = settings.font_family || 'system'
@@ -58,8 +57,8 @@ export default function AnalysisBubblePage() {
 
   return (
     <div className="window-safe-area">
-      <div className="w-full h-full theme-bubble-window">
-        <AnalysisDialog key={articleId} articleId={articleId} articleTitle="" onClose={() => window.close()} showCloseButton={false} />
+      <div className="w-full h-full paper-surface paper-ui">
+        <AnalysisDialog key={articleId} articleId={articleId} articleTitle={articleTitle} onClose={() => window.close()} />
       </div>
     </div>
   )

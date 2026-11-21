@@ -1,4 +1,12 @@
-export type TranslationProvider = 'tencent' | 'aliyun' | 'ollama'
+export type TranslationProvider = 'aliyun' | 'ollama'
+
+export class TranslationUnavailableError extends Error {
+  override name = 'TranslationUnavailableError'
+}
+
+export class TranslationFailedError extends Error {
+  override name = 'TranslationFailedError'
+}
 
 export interface TranslateInput {
   articleId: number
@@ -13,7 +21,6 @@ export interface TranslateResult {
 }
 
 export interface TranslationUsage {
-  tencentChars: number
   aliyunChars: number
   ollamaChars: number
   totalChars: number

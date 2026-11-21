@@ -1,6 +1,5 @@
 import { getDb, saveNow } from '../db'
-import { TranslateInput, TranslateResult, TranslationUsage } from './types'
-import { translateWithTencent, checkTencentOpenStatus } from './tencent-translator'
+import { TranslateInput, TranslateResult, TranslationUsage, TranslationFailedError, TranslationUnavailableError } from './types'
 import { translateWithAliyun } from './aliyun-translator'
 import { translateWithOllama } from './ollama-translator'
 
@@ -57,22 +56,18 @@ export function getTranslationUsage(): TranslationUsage & { ok: boolean; error?:
     const map: Record<string, number> = {}
     for (const r of rows) map[r.provider] = r.chars
     return {
-      tencentChars: map.tencent || 0,
       aliyunChars: map.aliyun || 0,
       ollamaChars: map.ollama || 0,
-      totalChars: (map.tencent || 0) + (map.aliyun || 0) + (map.ollama || 0),
+      totalChars: (map.aliyun || 0) + (map.ollama || 0),
       ok: true,
     }
   } catch (err) {
     console.error('[Translation] 用量读取失败:', err)
     try {
-      const db = getDb()
-      for (const p of ['tencent', 'aliyun']) {
-        setControlStatus(p, 'paused', '用量读取失败，为防止超额已暂停云端翻译')
-      }
+      setControlStatus('aliyun', 'paused', '用量读取失败，为防止超额已暂停云端翻译')
       saveNow()
     } catch {}
-    return { tencentChars: 0, aliyunChars: 0, ollamaChars: 0, totalChars: 0, ok: false, error: '用量读取失败，云端翻译已暂停' }
+    return { aliyunChars: 0, ollamaChars: 0, totalChars: 0, ok: false, error: '用量读取失败，云端翻译已暂停' }
   }
 }
 
@@ -100,8 +95,8 @@ function checkLimit(provider: string, charCount: number): { ok: boolean; warn: b
 
   // 注意：*_char_limit / *_initial_used_chars 的单位是"万字符"
   const initialUsed = getMonthlyInitialWan(provider) * 10000
-  const localUsed = (provider === 'tencent' ? usage.tencentChars : usage.aliyunChars)
-  const limit = getIntSetting(`${provider}_char_limit`, provider === 'tencent' ? 500 : 100) * 10000
+  const localUsed = usage.aliyunChars
+  const limit = getIntSetting(`${provider}_char_limit`, 100) * 10000
 
   if (limit <= 0) return { ok: true, warn: false, reason: '' }
 
@@ -135,7 +130,6 @@ function reserveTranslationUsage(provider: string, articleId: number, charCount:
     return limitCheck
   } catch (err) {
     console.error(`[Translation] 用量预占失败 provider=${provider}, chars=${charCount}:`, err)
-    pauseProvider(provider, '用量预占失败，为防止超额已暂停云端翻译')
     return { ok: false, warn: false, reason: '用量预占失败，为防止超额已暂停云端翻译' }
   }
 }
@@ -156,105 +150,57 @@ export function pauseProvider(provider: string, reason: string): void {
   } catch {}
 }
 
-// ── 腾讯云云端状态缓存（5分钟 TTL）────────────────────
-
-let tencentStatusCache: { checkedAt: number; hasOpen: boolean; hasArrearage: boolean } | null = null
-
-async function ensureTencentAvailable(): Promise<{ ok: boolean; reason: string }> {
-  const now = Date.now()
-  const ttl = 5 * 60 * 1000
-
-  if (!tencentStatusCache || now - tencentStatusCache.checkedAt > ttl) {
-    try {
-      const status = await checkTencentOpenStatus()
-      tencentStatusCache = { checkedAt: now, hasOpen: status.hasOpen, hasArrearage: status.hasArrearage }
-    } catch (e) {
-      return { ok: false, reason: '腾讯云状态查询失败，为防止欠费风险已暂停腾讯云翻译' }
-    }
-  }
-
-  if (!tencentStatusCache.hasOpen) {
-    return { ok: false, reason: '腾讯云机器翻译未开通，已暂停腾讯云翻译' }
-  }
-  if (tencentStatusCache.hasArrearage) {
-    return { ok: false, reason: '腾讯云账号显示欠费，已暂停腾讯云翻译' }
-  }
-  return { ok: true, reason: '' }
-}
-
 // ── 主翻译入口 ────────────────────────────────────────
 
 export async function translateArticle(input: TranslateInput): Promise<TranslateResult> {
   const charCount = input.title.length + input.abstract.length
-  const provider = getSetting('translation_provider', 'tencent')
+  const provider = getSetting('translation_provider', 'aliyun')
   // P0修复: 默认值改为 'false'，与设置页UI一致
   const allowFallback = getSetting('allow_translation_fallback', 'false') === 'true'
-  const tencentPaused = isProviderPaused('tencent')
-  const aliyunPaused = isProviderPaused('aliyun')
 
-  // P0修复: 根据 provider 和 fallback 严格构建链，不再无条件加 Ollama
-  const chain: Array<{ name: string; fn: () => Promise<TranslateResult>; enabled: boolean }> = []
-
-  if (provider === 'tencent') {
-    chain.push({ name: 'tencent', fn: () => translateWithTencent(input), enabled: !tencentPaused })
-    if (allowFallback) {
-      chain.push({ name: 'aliyun', fn: () => translateWithAliyun(input), enabled: !aliyunPaused })
-      chain.push({ name: 'ollama', fn: () => translateWithOllama(input), enabled: true })
-    }
-  } else if (provider === 'aliyun') {
-    chain.push({ name: 'aliyun', fn: () => translateWithAliyun(input), enabled: !aliyunPaused })
-    if (allowFallback) {
-      chain.push({ name: 'tencent', fn: () => translateWithTencent(input), enabled: !tencentPaused })
-      chain.push({ name: 'ollama', fn: () => translateWithOllama(input), enabled: true })
-    }
-  } else if (provider === 'ollama') {
-    chain.push({ name: 'ollama', fn: () => translateWithOllama(input), enabled: true })
+  const chain = []
+  if (provider === 'aliyun') chain.push({ name: 'aliyun', translate: translateWithAliyun })
+  if (provider === 'ollama' || (provider === 'aliyun' && allowFallback)) {
+    chain.push({ name: 'ollama', translate: translateWithOllama })
   }
 
-  let lastError = ''
+  let failure: TranslationFailedError | undefined
+  let unavailableReason = ''
   for (const step of chain) {
-    if (!step.enabled) { console.log(`[Translation] #${input.articleId} ${step.name} 已暂停，跳过`); continue }
-
-    // P0修复: 腾讯云翻译前先检查云端状态（欠费/未开通则暂停）
-    if (step.name === 'tencent') {
-      const cloudCheck = await ensureTencentAvailable()
-      if (!cloudCheck.ok) {
-        console.log(`[Translation] #${input.articleId} ${cloudCheck.reason}`)
-        pauseProvider('tencent', cloudCheck.reason)
-        if (!allowFallback) break
-        continue
-      }
-    }
-
-    // P0修复: 翻译前先预占额度，通过后再调用 API（防止并发穿透和部分成功未记录）
-    if (step.name === 'tencent' || step.name === 'aliyun') {
+    // 每次按当前月份和设置核算额度，自动恢复到期的暂停。
+    if (step.name === 'aliyun') {
+      const wasPaused = isProviderPaused(step.name)
       const reserve = reserveTranslationUsage(step.name, input.articleId, charCount)
       if (!reserve.ok) {
-        console.log(`[Translation] #${input.articleId} ${reserve.reason}`)
-        pauseProvider(step.name, reserve.reason)
-        if (!allowFallback) break
+        unavailableReason = reserve.reason
+        if (!wasPaused) pauseProvider(step.name, reserve.reason)
         continue
       }
       if (reserve.warn) {
         console.log(`[Translation] #${input.articleId} ${reserve.reason}`)
         setControlStatus(step.name, 'warning', reserve.reason)
+      } else if (wasPaused) {
+        setControlStatus(step.name, 'normal', '')
       }
     }
 
     try {
       console.log(`[Translation] #${input.articleId} ${step.name}...`)
-      const result = await step.fn()
+      const result = await step.translate(input)
       result.title_cn = cleanMarkdown(result.title_cn)
       result.abstract_cn = cleanMarkdown(result.abstract_cn)
+      if (!result.title_cn || !result.abstract_cn) {
+        throw new TranslationFailedError(step.name + ' returned an empty translation')
+      }
       console.log(`[Translation] #${input.articleId} ${step.name} ok: ${result.title_cn.slice(0, 30)}`)
       return result
     } catch (e) {
-      lastError = String(e)
-      console.warn(`[Translation] #${input.articleId} ${step.name} 失败: ${lastError}`)
-      if (step.name !== 'ollama' && !allowFallback) break
+      console.warn(`[Translation] #${input.articleId} ${step.name}: ${String(e)}`)
+      if (e instanceof TranslationFailedError) failure = e
+      else unavailableReason = String(e)
     }
   }
 
-  throw new Error(lastError || '所有翻译服务均不可用')
+  throw failure ?? new TranslationUnavailableError(unavailableReason || '所有翻译服务均不可用')
 }
 

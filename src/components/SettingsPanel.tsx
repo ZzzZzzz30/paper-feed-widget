@@ -1,14 +1,22 @@
-import { useState, useEffect } from 'react'
-import { useStore } from '../store'
+import { createContext, useContext, useState, useEffect } from 'react'
+import { BookOpen, Database, KeyRound, Languages, Library, Settings2 } from 'lucide-react'
+import WindowHeader from './WindowHeader'
+import { broadcastAppearance } from '../styles/theme-channel'
+import { APPEARANCES, getAppearance } from '../styles/appearance'
 
-const THEMES = [
-  { key: 'dark', name: '深色', desc: '默认暗色', colors: ['#121218', '#1f2937', '#60a5fa'] },
-  { key: 'light', name: '亮色', desc: '浅色阅读', colors: ['#f8fafc', '#ffffff', '#2563eb'] },
-  { key: 'midnight', name: '午夜蓝', desc: '低亮度蓝紫', colors: ['#070a19', '#0f172a', '#6366f1'] },
-  { key: 'forest', name: '森林绿', desc: '自然绿色', colors: ['#0a120e', '#12231a', '#22c55e'] },
-  { key: 'rose', name: '玫瑰金', desc: '暖色强调', colors: ['#1c0f18', '#2a1824', '#ec4899'] },
-  { key: 'paper', name: '纸张', desc: '文献阅读', colors: ['#f3efe7', '#fffaf0', '#b45309'] },
+const SettingsTab = createContext('reading')
+const TABS = [
+  { id: 'reading', label: '阅读', icon: BookOpen },
+  { id: 'sources', label: '订阅', icon: Library },
+  { id: 'translation', label: '翻译', icon: Languages },
+  { id: 'keys', label: '密钥', icon: KeyRound },
+  { id: 'data', label: '数据', icon: Database },
 ]
+import { useStore } from '../store'
+import JournalManager from './JournalManager'
+import DataPanel from './DataPanel'
+import ConferenceManager from './ConferenceManager'
+
 const FONTS = [
   { key: 'system', name: '系统默认' },
   { key: 'sans', name: '现代无衬线' },
@@ -22,6 +30,9 @@ export default function SettingsPanel() {
   const setView = useStore(s => s.setView)
   const previousView = useStore(s => s.previousView)
   const updateSetting = useStore(s => s.updateSetting)
+  const [tab, setTab] = useState('reading')
+  const [appearanceBusy, setAppearanceBusy] = useState(false)
+  const [appearanceError, setAppearanceError] = useState('')
   const [local, setLocal] = useState<Record<string, string>>({})
 
   useEffect(() => { setLocal({ ...settings }) }, [settings])
@@ -32,19 +43,16 @@ export default function SettingsPanel() {
     setLocal(p => ({ ...p, [k]: value }))
     try {
       await window.electronAPI.updateSetting(k, value)
-      console.log(`[SettingsPanel] updateSetting ${k} = ${value} OK`)
     } catch (err) {
       console.error(`[SettingsPanel] updateSetting ${k} 失败:`, err)
     }
     updateSetting(k, value)
-    if (k === 'theme') {
-      document.documentElement.setAttribute('data-theme', value)
-    }
     if (k === 'font_size') {
       document.documentElement.style.setProperty('--app-font-size', value + 'px')
       document.documentElement.style.fontSize = value + 'px'
     }
     if (k === 'font_family') {
+      document.documentElement.dataset.font = value
       const fm: Record<string, string> = {
         system: 'system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif',
         sans: '"Noto Sans SC","Microsoft YaHei",system-ui,sans-serif',
@@ -60,33 +68,43 @@ export default function SettingsPanel() {
 
   return (
     <div className="window-safe-area">
-      <div className="w-full h-full theme-window flex flex-col">
-      <div className="drag-handle shrink-0 flex items-center justify-between px-4 py-3 border-b theme-border-light">
-        <span className="text-sm theme-text-secondary font-medium">⚙️ 设置</span>
-        <button onClick={() => setView(previousView)} className="no-drag theme-text-muted hover:theme-text-main text-sm">✕</button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-        <Section title="API 密钥">
-          <Row label="Elsevier"><input type="password" value={local.elsevier_api_key || ''} onChange={e => set('elsevier_api_key', e.target.value)} className={inp} placeholder="ScienceDirect API Key" /></Row>
-          <Row label="腾讯云 SecretId"><input type="password" value={local.tencent_secret_id || ''} onChange={e => set('tencent_secret_id', e.target.value)} className={inp} placeholder="AKID..." /></Row>
-          <Row label="腾讯云 SecretKey"><input type="password" value={local.tencent_secret_key || ''} onChange={e => set('tencent_secret_key', e.target.value)} className={inp} placeholder="SecretKey" /></Row>
-          <Row label="阿里云 AK ID"><input type="password" value={local.aliyun_access_key_id || ''} onChange={e => set('aliyun_access_key_id', e.target.value)} className={inp} placeholder="LTAI..." /></Row>
-          <Row label="阿里云 AK Secret"><input type="password" value={local.aliyun_access_key_secret || ''} onChange={e => set('aliyun_access_key_secret', e.target.value)} className={inp} placeholder="Secret" /></Row>
-          <Row label="DeepSeek"><input type="password" value={local.deepseek_api_key || ''} onChange={e => set('deepseek_api_key', e.target.value)} className={inp} placeholder="sk-..." /></Row>
+      <div className="w-full h-full theme-window paper-settings paper-ui flex flex-col">
+      <WindowHeader icon={<Settings2 size={16} />} title="设置" onClose={() => setView(previousView)} />
+      <nav className="paper-settings-tabs" aria-label="设置分类">
+        {TABS.map(({ id, label, icon: Icon }) => <button key={id} type="button"
+          aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>
+          <Icon size={16} /><span>{label}</span>
+        </button>)}
+      </nav>
+      <SettingsTab.Provider value={tab}>
+      <div className="paper-settings-body">
+        <Section title="数据" group="data">
+          <DataPanel />
         </Section>
 
-        <Section title="推送">
-          <Row label="年份从"><input type="number" value={local.year_from || '2015'} onChange={e => set('year_from', e.target.value)} min="2000" max="2026" className={inp + ' w-20'} /></Row>
+        <Section title="API 密钥" group="keys">
+          <div className="text-xs theme-text-subtle">密钥由系统加密保存。已保存的值不回传界面，输入新值后点击保存。</div>
+          <SecretSetting label="Elsevier" settingKey="elsevier_api_key" placeholder="ScienceDirect API Key" />
+          <SecretSetting label="阿里云 AK ID" settingKey="aliyun_access_key_id" placeholder="LTAI..." />
+          <SecretSetting label="阿里云 AK Secret" settingKey="aliyun_access_key_secret" placeholder="Secret" />
+          <SecretSetting label="DeepSeek" settingKey="deepseek_api_key" placeholder="sk-..." />
+        </Section>
+
+        <Section title="推送" group="reading">
+          <Row label="最低出版年份"><span className="text-xs theme-text-secondary">2025 年</span></Row>
           <Row label="每轮篇数"><input type="number" value={local.push_count || '20'} onChange={e => set('push_count', e.target.value)} min="5" max="100" className={inp + ' w-20'} /></Row>
         </Section>
 
-        <Section title="期刊管理">
+        <Section title="期刊管理" group="sources">
           <JournalManager />
         </Section>
 
-        <Section title="翻译额度与安全">
-          <Row label="引擎"><select value={local.translation_provider || 'tencent'} onChange={e => set('translation_provider', e.target.value)} className={inp + ' w-24'}><option value="tencent">腾讯云</option><option value="aliyun">阿里云</option><option value="ollama">Ollama</option></select></Row>
+        <Section title="会议管理" group="sources">
+          <ConferenceManager />
+        </Section>
+
+        <Section title="翻译额度与安全" group="translation">
+          <Row label="引擎"><select value={local.translation_provider || 'aliyun'} onChange={e => set('translation_provider', e.target.value)} className={inp + ' w-24'}><option value="aliyun">阿里云</option><option value="ollama">Ollama</option></select></Row>
           <Row label="失败时自动降级">
             <select value={local.allow_translation_fallback || 'false'} onChange={e => set('allow_translation_fallback', e.target.value)} className={inp + ' w-20'}>
               <option value="true">允许</option><option value="false">禁止</option>
@@ -95,18 +113,32 @@ export default function SettingsPanel() {
           <QuotaDashboard />
         </Section>
 
-        <Section title="外观">
-          <div className="text-sm theme-text-secondary mb-2">主题</div>
-          <div className="grid grid-cols-2 gap-2">
-            {THEMES.map(t => (
-              <button key={t.key} onClick={() => set('theme', t.key)} className="no-drag rounded-xl p-3 text-left border transition"
-                style={{ borderColor: local.theme === t.key ? 'rgb(var(--accent-rgb) / 0.7)' : 'rgb(var(--border-rgb) / 0.12)', background: 'rgb(var(--panel-bg-rgb) / 0.6)' }}>
-                <div className="flex gap-1 mb-2">{t.colors.map(c => <span key={c} className="w-5 h-5 rounded-full border theme-border-light" style={{ background: c }} />)}</div>
-                <div className="text-sm font-medium theme-text-main">{t.name}</div>
-                <div className="text-[11px] theme-text-muted">{t.desc}</div>
-              </button>
-            ))}
+        <Section title="外观" group="reading">
+          <div className="appearance-heading">外观方案</div>
+          <div className="appearance-options">
+            {APPEARANCES.map(preset => <button key={preset.key} type="button"
+              disabled={appearanceBusy} aria-pressed={getAppearance(local).key === preset.key}
+              onClick={async () => {
+                setAppearanceBusy(true)
+                setAppearanceError('')
+                try {
+                  await window.electronAPI.updateSetting('appearance', preset.key)
+                  updateSetting('appearance', preset.key)
+                  setLocal(previous => ({ ...previous, appearance: preset.key }))
+                  broadcastAppearance(preset.key)
+                } catch { setAppearanceError('外观保存失败，请重试。') }
+                finally { setAppearanceBusy(false) }
+              }}>
+              <span className="appearance-thumbnail" data-preset={preset.key}
+                style={{ background: preset.reading, color: preset.ink, borderColor: preset.ink + '22' }}>
+                <span className="appearance-thumbnail-bar" style={{ background: preset.panel }}>Aa<span>···</span></span>
+                <span className="appearance-thumbnail-body"><i /><i /><i /></span>
+              </span>
+              <span className="appearance-option-label"><strong>{preset.name}</strong><span className="appearance-radio" /></span>
+              <small>{preset.desc}</small>
+            </button>)}
           </div>
+          {appearanceError && <p className="workspace-error" role="alert">{appearanceError}</p>}
           <div className="mt-4">
             <div className="flex justify-between text-sm theme-text-secondary mb-1"><span>字体大小</span><span>{local.font_size || 16}px</span></div>
             <input type="range" min="13" max="36" step="1" value={Number(local.font_size || 16)} onChange={e => set('font_size', e.target.value)} className="w-full" />
@@ -118,13 +150,56 @@ export default function SettingsPanel() {
               </select>
             </Row>
           </div>
-          <label className="flex items-center gap-2 text-sm theme-text-secondary mt-3">
-            <input type="checkbox" defaultChecked={local.auto_start === 'true'} onChange={e => set('auto_start', String(e.target.checked))} className="rounded theme-bg-overlay-strong theme-border" />开机自启动
-          </label>
         </Section>
 
       </div>
+      </SettingsTab.Provider>
     </div>
+    </div>
+  )
+}
+
+function SecretSetting({ label, settingKey, placeholder }: { label: string; settingKey: string; placeholder: string }) {
+  const configured = useStore(s => s.settings[`${settingKey}_configured`] === 'true')
+  const updateSetting = useStore(s => s.updateSetting)
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const save = async (value: string) => {
+    setBusy(true)
+    setError('')
+    try {
+      const result = await window.electronAPI.updateSetting(settingKey, value)
+      updateSetting(settingKey, '')
+      updateSetting(`${settingKey}_configured`, String(result.configured ?? !!value))
+      setDraft('')
+    } catch {
+      setError('保存失败，请检查系统安全存储后重试')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="paper-secret">
+      <Row label={label}>
+        <div className="paper-secret-field">
+          <input type="password" autoComplete="new-password" value={draft} disabled={busy}
+            onChange={e => setDraft(e.target.value)} aria-label={label}
+            className="w-full px-2 py-1 rounded-lg theme-bg-overlay-strong theme-text-secondary text-sm border theme-border outline-none"
+            placeholder={configured ? '已配置；输入新值可替换' : placeholder} />
+          <div className="flex items-center gap-2 text-xs">
+            <span className="theme-text-subtle">{configured ? '已配置' : '未配置'}</span>
+            <button disabled={busy || !draft.trim()} onClick={() => void save(draft.trim())}
+              className="theme-accent-text disabled:opacity-40">{busy ? '保存中…' : '保存'}</button>
+            {configured && <button disabled={busy} onClick={() => {
+              if (confirm(`确定删除 ${label} 的已保存密钥？`)) void save('')
+            }} className="text-red-400 disabled:opacity-40">删除</button>}
+          </div>
+        </div>
+      </Row>
+      {error && <div className="text-xs text-red-400">{error}</div>}
     </div>
   )
 }
@@ -204,76 +279,25 @@ function QuotaDashboard() {
     <div className="space-y-2">
       <div className="flex items-center gap-2 text-xs">
         <span className={statusColor(data.globalStatus)}>● {statusLabel(data.globalStatus)}</span>
-        <span className="theme-text-muted">| 主引擎: {data.activeProvider === 'tencent' ? '腾讯云' : data.activeProvider === 'aliyun' ? '阿里云' : 'Ollama'}</span>
+        <span className="theme-text-muted">| 主引擎: {data.activeProvider === 'aliyun' ? '阿里云' : 'Ollama'}</span>
         <span className="theme-text-muted">| 降级: {data.allowFallback ? '开' : '关'}</span>
       </div>
       <div className="text-[10px] theme-text-subtle">统计周期: {data.monthLabel} · 本地统计，不等同于云端账单</div>
       {!data.localUsageOk && <div className="text-xs text-red-400">⚠ {data.localUsageError}</div>}
-      {quotaCard(data.providers.tencent)}
       {quotaCard(data.providers.aliyun)}
       <div className="text-[10px] theme-text-subtle italic">
-        免费额度: 腾讯云 500万/月 | 阿里云 100万/月 · Ollama 本地不计入
+        免费额度: 阿里云 100万/月 · Ollama 本地不计入
       </div>
     </div>
   )
 }
 
-function JournalManager() {
-  const [journals, setJournals] = useState<Array<{ name: string; issn: string; rssUrl: string }>>([])
-  const [loaded, setLoaded] = useState(false)
-  const [newName, setNewName] = useState('')
-  const [newIssn, setNewIssn] = useState('')
-  const [newRss, setNewRss] = useState('')
-
-  useEffect(() => {
-    window.electronAPI.getJournals().then(j => { setJournals(j || []); setLoaded(true) }).catch(() => setLoaded(true))
-  }, [])
-
-  const inpS = "flex-1 px-2 py-1 rounded text-xs theme-bg-overlay-strong theme-text-secondary border theme-border-light outline-none"
-
-  const save = (updated: typeof journals) => {
-    setJournals(updated)
-    window.electronAPI.saveJournals(updated)
-  }
-
-  const add = () => {
-    if (!newName.trim() || !newIssn.trim() || !newRss.trim()) return
-    save([...journals, { name: newName.trim(), issn: newIssn.trim(), rssUrl: newRss.trim() }])
-    setNewName(''); setNewIssn(''); setNewRss('')
-  }
-
-  const remove = (i: number) => {
-    if (!confirm(`确定移除「${journals[i].name}」？`)) return
-    save(journals.filter((_, idx) => idx !== i))
-  }
-
-  if (!loaded) return <div className="text-xs theme-text-subtle">加载中...</div>
-
-  return (
-    <div className="space-y-2">
-      {journals.map((j, i) => (
-        <div key={i} className="flex items-center gap-1 text-xs">
-          <span className="flex-1 theme-text-secondary truncate">{j.name}</span>
-          <span className="text-[10px] theme-text-subtle w-20 truncate">ISSN:{j.issn}</span>
-          <button onClick={() => remove(i)} className="text-[10px] px-1 py-0.5 rounded text-red-400 hover:text-red-300">✕</button>
-        </div>
-      ))}
-      <div className="flex flex-col gap-1 pt-2 border-t theme-border-light">
-        <input placeholder="期刊名称" value={newName} onChange={e => setNewName(e.target.value)} className={inpS} />
-        <div className="flex gap-1">
-          <input placeholder="ISSN" value={newIssn} onChange={e => setNewIssn(e.target.value)} className={inpS + ' w-24'} />
-          <input placeholder="RSS URL" value={newRss} onChange={e => setNewRss(e.target.value)} className={inpS} />
-          <button onClick={add} className="shrink-0 px-2 py-1 rounded text-[10px] theme-accent-bg theme-accent-text hover:opacity-80">添加</button>
-        </div>
-        <div className="text-[10px] theme-text-subtle">在 ScienceDirect 期刊页底部找 RSS 图标获取链接。改完后点"刷新推送"生效。</div>
-      </div>
-    </div>
-  )
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return <div className="space-y-2.5"><h3 className="text-sm font-medium theme-text-muted border-b theme-border-light pb-1">{title}</h3>{children}</div>
+function Section({ title, group, children }: { title: string; group: string; children: React.ReactNode }) {
+  const tab = useContext(SettingsTab)
+  return <section className="paper-setting-section" hidden={group !== tab}>
+    <h3>{title}</h3><div className="paper-setting-card">{children}</div>
+  </section>
 }
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div className="flex items-center justify-between"><span className="text-sm theme-text-secondary">{label}</span>{children}</div>
+  return <div className="paper-setting-row"><span className="theme-text-secondary">{label}</span>{children}</div>
 }

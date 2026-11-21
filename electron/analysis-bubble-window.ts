@@ -7,15 +7,18 @@ let currentArticleId: number | null = null
 let userMoved = false
 let programmaticMove = false
 
-const PW = 434, PH = 334, GAP = 12
+const PW = 440, PH = 560, GAP = 12
 
 function computeBounds(mainWindow: BrowserWindow) {
   const b = mainWindow.getBounds()
   const display = screen.getDisplayMatching(b)
   const work = display.workArea
-  const x = Math.max(work.x + 8, b.x - PW - GAP)
-  const y = Math.min(Math.max(b.y, work.y + 8), work.y + work.height - PH - 8)
-  return { x: Math.round(x), y: Math.round(y), width: PW, height: PH }
+  const width = Math.min(PW, work.width - 16), height = Math.min(PH, work.height - 16)
+  const left = b.x - width - GAP, right = b.x + b.width + GAP
+  const preferredX = left >= work.x + 8 ? left : right + width <= work.x + work.width - 8 ? right : left
+  const x = Math.max(work.x + 8, Math.min(preferredX, work.x + work.width - width - 8))
+  const y = Math.max(work.y + 8, Math.min(b.y, work.y + work.height - height - 8))
+  return { x: Math.round(x), y: Math.round(y), width, height }
 }
 
 function setBounds(bounds: Electron.Rectangle) {
@@ -40,8 +43,8 @@ function createBubbleWindow(mainWindow: BrowserWindow, payload: { articleId: num
   const isDev = !require('electron').app.isPackaged
   const fileUrl = pathToFileURL(join(__dirname, '../renderer/index.html')).toString()
   bubbleWindow.loadURL(isDev
-    ? `http://localhost:5173/#/analysis-bubble?articleId=${payload.articleId}`
-    : `${fileUrl}#/analysis-bubble?articleId=${payload.articleId}`)
+    ? `http://localhost:5173/#/analysis-bubble?articleId=${payload.articleId}&title=${encodeURIComponent(payload.articleTitle)}`
+    : `${fileUrl}#/analysis-bubble?articleId=${payload.articleId}&title=${encodeURIComponent(payload.articleTitle)}`)
   bubbleWindow.once('ready-to-show', () => bubbleWindow?.show())
   bubbleWindow.on('closed', () => {
     mainWindow.removeListener('move', reposition)

@@ -1,5 +1,6 @@
 import OpenAI from 'openai'
 import { getDb } from '../db'
+import { readSecretSetting } from '../secure-settings'
 
 export interface LlmResult {
   content: string
@@ -13,11 +14,14 @@ export interface LlmResult {
 function getApiKey(): string {
   // 优先从用户设置读取，其次环境变量
   try {
-    const db = getDb()
-    const row = db.prepare("SELECT value FROM settings WHERE key = 'deepseek_api_key'").get() as { value: string } | undefined
-    if (row?.value && row.value.trim()) return row.value.trim()
+    const value = readSecretSetting('deepseek_api_key')
+    if (value) return value.trim()
   } catch { /* db 未初始化 */ }
   return (process.env.DEEPSEEK_API_KEY || '').trim()
+}
+
+export function hasDeepSeekApiKey(): boolean {
+  return !!getApiKey()
 }
 
 function createClient(): OpenAI {
@@ -30,7 +34,7 @@ function createClient(): OpenAI {
 
 export async function askDeepSeek(
   messages: Array<{ role: string; content: string }>,
-  opts?: { feature?: string; articleId?: number }
+  opts?: { feature?: string; articleId?: number; timeoutMs?: number }
 ): Promise<LlmResult> {
   const client = createClient()
   console.log('[DeepSeek] key exists =', !!getApiKey())
@@ -40,7 +44,7 @@ export async function askDeepSeek(
     messages: messages as Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
     stream: false,
     temperature: 0.3,
-  })
+  }, opts?.timeoutMs ? { timeout: opts.timeoutMs, maxRetries: 0 } : undefined)
 
   const content = (res as { choices: Array<{ message: { content: string } }> }).choices[0]?.message?.content || ''
 

@@ -1,4 +1,5 @@
 import { getDb } from './db'
+import { readSecretSetting } from './secure-settings'
 import { analyzeWithOllama, checkOllamaStatus } from './llm-providers/ollama'
 import { analyzeWithOpenAI } from './llm-providers/openai'
 import { analyzeWithAnthropic } from './llm-providers/anthropic'
@@ -206,11 +207,8 @@ function parseAnalysisResponse(raw: string): AnalysisResult {
 
 function getApiKey(provider: string): string {
   try {
-    const db = getDb()
-    const result = db.prepare(
-      "SELECT value FROM settings WHERE key = ?"
-    ).get(`api_key_${provider}`) as { value: string } | undefined
-    if (result?.value) return result.value
+    const value = readSecretSetting(`api_key_${provider}`)
+    if (value) return value
   } catch {
     // db 未初始化
   }

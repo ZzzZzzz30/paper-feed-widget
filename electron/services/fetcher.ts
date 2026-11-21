@@ -1,5 +1,7 @@
 import { getDb } from './db'
 import { parseRSSFeed } from './rss-parser'
+import { findExactJournalArticle, normalizeArticleTitle, normalizeDoi } from './article-matching'
+import { getConfiguredMinYear, isEligiblePublicationYear } from './publication-policy'
 import cron from 'node-cron'
 import fs from 'fs'
 import path from 'path'
@@ -17,7 +19,7 @@ function loadJournals(): JournalConfig[] {
     const row = db.prepare("SELECT value FROM settings WHERE key = 'journals'").get() as { value?: string } | undefined
     if (row?.value) {
       const data = JSON.parse(row.value)
-      if (Array.isArray(data) && data.length > 0) return data
+      if (Array.isArray(data)) return data
     }
   } catch {}
 
@@ -26,21 +28,12 @@ function loadJournals(): JournalConfig[] {
   try {
     if (fs.existsSync(configPath)) {
       const data = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
-      if (Array.isArray(data) && data.length > 0) return data
+      if (Array.isArray(data)) return data
     }
   } catch (e) { console.error('[Fetcher] journals.json 读取失败') }
 
-  // fallback 默认期刊
-  return [
-    { name: 'Computers, Environment and Urban Systems', issn: '0198-9715', rssUrl: 'https://rss.sciencedirect.com/publication/science/01989715' },
-    { name: 'Cities', issn: '0264-2751', rssUrl: 'https://rss.sciencedirect.com/publication/science/02642751' },
-    { name: 'Landscape and Urban Planning', issn: '0169-2046', rssUrl: 'https://rss.sciencedirect.com/publication/science/01692046' },
-    { name: 'Habitat International', issn: '0197-3975', rssUrl: 'https://rss.sciencedirect.com/publication/science/01973975' },
-    { name: 'Applied Geography', issn: '0143-6228', rssUrl: 'https://rss.sciencedirect.com/publication/science/01436228' },
-  ]
+  return []
 }
-
-const JOURNALS: JournalConfig[] = loadJournals()
 
 let lastFetchTime = 0
 const FETCH_THROTTLE_MS = 5 * 60 * 1000
@@ -61,14 +54,14 @@ export async function fetchAllJournals(force = false): Promise<number> {
   lastFetchTime = now
   const db = getDb()
   const yearFrom = db.prepare("SELECT value FROM settings WHERE key = 'year_from'").get() as { value: string } | undefined
-  const minYear = parseInt(yearFrom?.value || '2015', 10)
+  const minYear = getConfiguredMinYear(yearFrom?.value)
 
   let totalNew = 0
 
-  for (const journal of JOURNALS) {
+  for (const journal of loadJournals()) {
     try {
       // 1. RSS 获取最新文章
-      const rssArticles = await fetchJournalArticlesFromRSS(journal, minYear)
+      const rssArticles = journal.rssUrl ? await fetchJournalArticlesFromRSS(journal, minYear) : []
       let rssNew = 0
       for (const article of rssArticles) {
         const result = upsertArticle(db, article, journal)
@@ -117,7 +110,7 @@ async function fetchFromCrossRefPaginated(
     `https://api.crossref.org/works` +
     `?filter=issn:${journal.issn},from-pub-date:${minYear},type:journal-article` +
     `&rows=${count}&offset=${offset}&sort=published&order=desc` +
-    `&select=DOI,title,abstract,author,published-print,link`
+    `&select=DOI,title,abstract,author,published-online,published-print,published,link,URL,ISSN,type`
 
   let data: CrossRefResponse
   try {
@@ -152,25 +145,38 @@ async function fetchFromCrossRefPaginated(
 
   let inserted = 0
   for (const item of items) {
-    if (!item.DOI || !item.title) continue
-    const pubYear = item['published-print']?.['date-parts']?.[0]?.[0]
+    const title = (Array.isArray(item.title) ? item.title[0] || '' : item.title || '').trim()
+    if (!item.DOI || !title || item.type !== 'journal-article') continue
+    const pubYear = item['published-online']?.['date-parts']?.[0]?.[0]
+      || item['published-print']?.['date-parts']?.[0]?.[0]
       || item.published?.['date-parts']?.[0]?.[0]
       || 0
-    if (pubYear < minYear) continue
+    if (!isEligiblePublicationYear(pubYear) || pubYear < minYear) continue
+    if (!findExactJournalArticle(title, [item], { issn: journal.issn, year: pubYear, doi: item.DOI })) continue
 
     const authorString = item.author
       ? JSON.stringify(item.author.map((a: CrossRefAuthor) => `${a.given || ''} ${a.family || ''}`.trim()))
       : '[]'
 
     const articleUrl = item.link?.[0]?.URL || item.URL || ''
-
-    // 先用 DOI 查重
-    const existingByDOI = db.prepare('SELECT id FROM articles WHERE extra_doi = ?').get(item.DOI)
-    if (existingByDOI) continue
+    const existing = findExistingArticleId(db, journal, item.DOI, title, pubYear)
+    if (existing.ambiguous) continue
+    if (existing.id !== undefined) {
+      db.prepare(`
+        UPDATE articles SET
+          extra_doi=CASE WHEN extra_doi IS NULL OR extra_doi='' THEN ? ELSE extra_doi END,
+          abstract=CASE WHEN abstract IS NULL OR abstract='' THEN ? ELSE abstract END,
+          authors=CASE WHEN authors IS NULL OR authors='' OR authors='[]' THEN ? ELSE authors END,
+          year=CASE WHEN year IS NULL OR year=0 THEN ? ELSE year END,
+          url=CASE WHEN url IS NULL OR url='' THEN ? ELSE url END
+        WHERE id=?
+      `).run(normalizeDoi(item.DOI), item.abstract || '', authorString, pubYear, articleUrl, existing.id)
+      continue
+    }
 
     const raw: RawArticle = {
-      doi: item.DOI, // 用 DOI 作为主键
-      title: String(item.title).trim(),
+      doi: normalizeDoi(item.DOI),
+      title,
       abstract: item.abstract || '',
       authors: authorString,
       year: pubYear,
@@ -183,13 +189,7 @@ async function fetchFromCrossRefPaginated(
     }
 
     const result = upsertArticle(db, raw, journal)
-    if (result === 'inserted') {
-      // 同时写入 extra_doi
-      try {
-        db.prepare('UPDATE articles SET extra_doi=? WHERE doi=?').run(item.DOI, item.DOI)
-      } catch { /* ok */ }
-      inserted++
-    }
+    if (result === 'inserted') inserted++
   }
 
   // 更新抓取进度
@@ -213,9 +213,12 @@ interface CrossRefResponse {
 interface CrossRefWork {
   DOI?: string
   title?: string | string[]
+  type?: string
+  ISSN?: string[]
   abstract?: string
   author?: CrossRefAuthor[]
   'published-print'?: { 'date-parts'?: number[][] }
+  'published-online'?: { 'date-parts'?: number[][] }
   published?: { 'date-parts'?: number[][] }
   link?: Array<{ URL: string }>
   URL?: string
@@ -246,7 +249,7 @@ async function fetchJournalArticlesFromRSS(
     if (!uniqueId) continue
 
     const year = extractYear(parsed.description)
-    if (year && year < minYear) continue
+    if (!isEligiblePublicationYear(year) || year < minYear) continue
 
     articles.push({
       doi: uniqueId,
@@ -265,12 +268,13 @@ async function fetchJournalArticlesFromRSS(
       title: parsed.title,
       issn: journal.issn,
       uniqueId,
+      year: year || 0,
     })
   }
 
   // 异步补充 CrossRef 元数据
   if (unresolvedItems.length > 0) {
-    enrichArticlesFromCrossRef(unresolvedItems, articles)
+    enrichArticlesFromCrossRef(unresolvedItems, articles, journal)
   }
 
   return articles
@@ -280,11 +284,13 @@ interface RSSItemForLookup {
   title: string
   issn: string
   uniqueId: string
+  year: number
 }
 
 function enrichArticlesFromCrossRef(
   unresolvedItems: RSSItemForLookup[],
-  articles: RawArticle[]
+  articles: RawArticle[],
+  journal: JournalConfig
 ): void {
   resolveDOIsByTitle(unresolvedItems).then(doiMap => {
     const db = getDb()
@@ -292,25 +298,17 @@ function enrichArticlesFromCrossRef(
       const resolved = doiMap.get(article.doi)
       if (!resolved) continue
 
-      const updates: Record<string, string | number> = {}
-      if (resolved.abstract) {
-        updates.abstract = resolved.abstract
+      const existing = findExistingArticleId(db, journal, resolved.realDoi || article.doi, article.title, resolved.year || article.year || 0)
+      if (existing.id === undefined) continue
+      const updates: Record<string, string | number> = {
+        extra_doi: normalizeDoi(resolved.realDoi),
       }
-      if (resolved.year && resolved.year !== article.year) {
-        updates.year = resolved.year
-      }
-      if (resolved.authorString) {
-        updates.authors = resolved.authorString
-      }
-
-      if (Object.keys(updates).length > 0) {
-        const setClauses = Object.keys(updates).map(k => `${k} = ?`).join(', ')
-        const values = Object.values(updates)
-        db.prepare(`UPDATE articles SET ${setClauses} WHERE doi = ?`).run(
-          ...values,
-          article.doi
-        )
-      }
+      if (resolved.abstract) updates.abstract = resolved.abstract
+      if (resolved.year) updates.year = resolved.year
+      if (resolved.authorString) updates.authors = resolved.authorString
+      const setClauses = Object.keys(updates).map(k => `${k} = CASE WHEN ${k} IS NULL OR ${k}='' OR ${k}='[]' OR ${k}=0 THEN ? ELSE ${k} END`)
+      const values = Object.values(updates)
+      db.prepare(`UPDATE articles SET ${setClauses.join(', ')} WHERE id = ?`).run(...values, existing.id)
     }
   }).catch(err => {
     console.error('[Fetcher] CrossRef 后台补充失败:', err)
@@ -327,7 +325,7 @@ async function resolveDOIsByTitle(
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 10_000)
 
-      const searchUrl = `https://api.crossref.org/works?query.title=${encodeURIComponent(item.title)}&filter=issn:${item.issn}&rows=1&select=DOI,title,abstract,author,published`
+      const searchUrl = `https://api.crossref.org/works?query.title=${encodeURIComponent(item.title)}&filter=issn:${item.issn},type:journal-article&rows=10&select=DOI,title,abstract,author,published,published-print,published-online,ISSN,type`
       const response = await fetch(searchUrl, {
         headers: {
           'User-Agent': 'PaperFeedWidget/0.2 (mailto:user@example.com)',
@@ -343,14 +341,22 @@ async function resolveDOIsByTitle(
         message: {
           items: Array<{
             DOI?: string
+            title?: string | string[]
+            type?: string
+            ISSN?: string[]
             abstract?: string
             published?: { 'date-parts'?: number[][] }
+            'published-print'?: { 'date-parts'?: number[][] }
+            'published-online'?: { 'date-parts'?: number[][] }
             author?: Array<{ given?: string; family?: string }>
           }>
         }
       }
 
-      const match = data.message?.items?.[0]
+      const match = findExactJournalArticle(item.title, data.message?.items || [], {
+        issn: item.issn,
+        year: item.year,
+      })
       if (match) {
         result.set(item.uniqueId, {
           realDoi: match.DOI,
@@ -475,17 +481,63 @@ interface RawArticle {
   description?: string
 }
 
+function findExistingArticleId(
+  db: ReturnType<typeof getDb>,
+  journal: JournalConfig,
+  doi: string,
+  title: string,
+  year: number
+): { id?: number; ambiguous: boolean } {
+  const byId = db.prepare('SELECT id FROM articles WHERE doi=?').get(doi) as { id: number } | undefined
+  if (byId) return { id: byId.id, ambiguous: false }
+  const normalizedDoi = normalizeDoi(doi)
+  const byDoi = normalizedDoi
+    ? db.prepare('SELECT id FROM articles WHERE lower(doi)=? OR lower(extra_doi)=? LIMIT 1').get(normalizedDoi, normalizedDoi) as { id: number } | undefined
+    : undefined
+  if (byDoi) return { id: byDoi.id, ambiguous: false }
+
+  const rows = db.prepare(`
+    SELECT id,doi,title,year,extra_doi FROM articles
+    WHERE (issn=? OR ((issn IS NULL OR issn='') AND journal=?))
+      AND (?=0 OR year=0 OR year IS NULL OR ABS(year-?)<=1)
+  `).all(journal.issn, journal.name, year, year) as Array<{ id: number; doi: string; title: string; year: number; extra_doi: string | null }>
+  const matching = rows.filter(row => {
+    const rowDoi = normalizeDoi(row.extra_doi) || normalizeDoi(row.doi)
+    return !!normalizeArticleTitle(title)
+      && normalizeArticleTitle(row.title) === normalizeArticleTitle(title)
+      && (!normalizedDoi || !rowDoi || rowDoi === normalizedDoi)
+  })
+  if (matching.length === 0) return { ambiguous: false }
+  if (matching.length === 1) return { id: matching[0].id, ambiguous: false }
+  return { ambiguous: true }
+}
+
 function upsertArticle(
   db: ReturnType<typeof getDb>,
   article: RawArticle,
   journal: JournalConfig
 ): 'inserted' | 'existing' {
-  const existing = db.prepare('SELECT id FROM articles WHERE doi = ?').get(article.doi)
-  if (existing) return 'existing'
+  if (!isEligiblePublicationYear(article.year)) return 'existing'
+  const match = findExistingArticleId(db, journal, article.doi, article.title, article.year || 0)
+  if (match.ambiguous) return 'existing'
+  if (match.id !== undefined) {
+    const doi = normalizeDoi(article.doi)
+    db.prepare(`
+      UPDATE articles SET
+        extra_doi=CASE WHEN (extra_doi IS NULL OR extra_doi='') AND ?!='' THEN ? ELSE extra_doi END,
+        abstract=CASE WHEN abstract IS NULL OR abstract='' THEN ? ELSE abstract END,
+        authors=CASE WHEN authors IS NULL OR authors='' OR authors='[]' THEN ? ELSE authors END,
+        url=CASE WHEN url IS NULL OR url='' THEN ? ELSE url END,
+        year=CASE WHEN year IS NULL OR year=0 THEN ? ELSE year END
+      WHERE id=?
+    `).run(doi, doi, article.abstract || '', article.authors || '[]', article.url || '', article.year || 0, match.id)
+    return 'existing'
+  }
 
+  const doi = normalizeDoi(article.doi)
   db.prepare(`
-    INSERT INTO articles (doi, title, abstract, authors, journal, issn, publication_date, year, url, pdf_url, graphical_abstract_url)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO articles (doi, title, abstract, authors, journal, issn, publication_date, year, url, pdf_url, graphical_abstract_url, extra_doi)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     article.doi,
     article.title,
@@ -497,8 +549,8 @@ function upsertArticle(
     article.year || 0,
     article.url || '',
     article.pdfUrl || '',
-    article.graphicalAbstractUrl || ''
+    article.graphicalAbstractUrl || '',
+    doi
   )
-
   return 'inserted'
 }
