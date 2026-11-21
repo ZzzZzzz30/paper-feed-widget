@@ -3,6 +3,9 @@ name: Build Windows release
 on:
   push:
     tags: ['v*.*.*']
+    branches: ['main']
+    paths: ['.github/workflows/release.yml']
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -21,7 +24,7 @@ jobs:
         shell: pwsh
         run: |
           $version = node -p "require('./package.json').version"
-          if ($env:GITHUB_REF_NAME -ne "v$version" -or $version -notmatch '^\d+\.\d+\.\d+$') {
+          if (($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") -or $version -notmatch '^\d+\.\d+\.\d+$') {
             throw 'Run this workflow on a version tag that matches package.json, e.g. v0.2.0.'
           }
       - run: npx tsc --noEmit
@@ -39,5 +42,5 @@ jobs:
             if (-not (Test-Path $asset)) { throw "Missing update asset: $asset" }
           }
           $assets = @($installer, $blockmap, $manifest)
-          gh release create $env:GITHUB_REF_NAME @assets --verify-tag --title "PaperFeed $env:GITHUB_REF_NAME" --generate-notes
+          gh release create "v$version" @assets --verify-tag --title "PaperFeed v$version" --generate-notes
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed.' }
