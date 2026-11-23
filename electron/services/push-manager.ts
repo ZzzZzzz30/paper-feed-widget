@@ -23,27 +23,6 @@ export const sourceKey = `CASE WHEN a.source_type = 'conference'
   ELSE 'journal:' || lower(trim(a.journal))
 END`
 
-const pushKeywords = [
-  /\bllm\b/i,
-  /\bllms\b/i,
-  /\bllm[\s\p{Pd}]+agents?\b/iu,
-  /\bagentic\b/i,
-  /\bai[\s\p{Pd}]+agents?\b/iu,
-  /\bbim\b/i,
-  /\bifc\b/i,
-  /\bifcopenshell\b/i,
-  /\brevit\b/i,
-  /\bbuilding\s+information\s+modeling\b/i,
-]
-
-function keywordScore(title: string, abstract: string): number {
-  const text = (title + '\n.\n' + abstract).normalize('NFKC').replace(/<[^>]*>/g, ' ')
-  // Split joined names such as MultiAgent or AgentBench before looking for the agent term.
-  const agentText = text.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Z])([A-Z][a-z])/g, '$1 $2')
-  const agent = /\b(?:multi|single|sub|co|micro|meta|super)?agents?(?:based|driven|powered|enabled|oriented|assisted|guided|centric)?\b/i.test(agentText)
-  return pushKeywords.filter(keyword => keyword.test(text)).length + Number(agent)
-}
-
 export function generatePushQueue(): PushQueueItem[] {
   const db = getDb()
 
@@ -65,7 +44,7 @@ export function selectPushItems(limit: number, excludeIds: number[] = []): PushQ
     `SELECT ${sourceKey} AS venue_key FROM articles a WHERE a.id = ?`
   ).get(tailId) as { venue_key: string } | undefined
   const candidates = db.prepare(`
-    SELECT a.id, a.title, a.abstract, ${sourceKey} AS venue_key
+    SELECT a.id, ${sourceKey} AS venue_key
     FROM articles a
     WHERE a.display_status = 'display_ready'
       AND a.title_cn IS NOT NULL AND a.title_cn != ''
@@ -74,22 +53,19 @@ export function selectPushItems(limit: number, excludeIds: number[] = []): PushQ
       AND NOT EXISTS (SELECT 1 FROM interactions i WHERE i.article_id = a.id AND i.action IN ('bookmark','dislike'))
       AND a.id NOT IN (SELECT value FROM json_each(?) WHERE type = 'integer')
     ORDER BY a.id
-  `).all(minYear, JSON.stringify(excludeIds)) as Array<{ id: number; title: string; abstract: string; venue_key: string }>
+  `).all(minYear, JSON.stringify(excludeIds)) as Array<{ id: number; venue_key: string }>
 
   const sourceRanks = new Map<string, number>()
-  const ranked = candidates.map(({ id, title, abstract, venue_key }) => {
-    const score = keywordScore(title, abstract)
-    const group = score + ':' + venue_key
-    const rank = (sourceRanks.get(group) ?? 0) + 1
-    sourceRanks.set(group, rank)
-    return { id, score, rank, venue: venue_key, afterWrap: Number(venue_key <= (tail?.venue_key ?? '')) }
+  const ranked = candidates.map(({ id, venue_key }) => {
+    const rank = (sourceRanks.get(venue_key) ?? 0) + 1
+    sourceRanks.set(venue_key, rank)
+    return { id, rank, venue: venue_key, afterWrap: Number(venue_key <= (tail?.venue_key ?? '')) }
   })
-  ranked.sort((a, b) => b.score - a.score || a.rank - b.rank || a.afterWrap - b.afterWrap
+  ranked.sort((a, b) => a.rank - b.rank || a.afterWrap - b.afterWrap
     || (a.venue < b.venue ? -1 : a.venue > b.venue ? 1 : 0))
 
   const selected = ranked.slice(0, Number.isSafeInteger(limit) && limit > 0 ? limit : 20)
   if (!selected.length) return []
-  const scores = new Map(selected.map(({ id, score }) => [id, score]))
   const result = db.prepare(`
     SELECT a.id, a.title, a.abstract, a.title_cn, a.abstract_cn, a.extra_doi, a.journal, a.year, a.url, a.pdf_url
     FROM json_each(?) chosen JOIN articles a ON a.id = chosen.value
@@ -108,7 +84,7 @@ export function selectPushItems(limit: number, excludeIds: number[] = []): PushQ
     innovation: [],
     journal: a.journal,
     year: a.year,
-    score: scores.get(a.id) ?? 0,
+    score: 0,
   }))
 }
 

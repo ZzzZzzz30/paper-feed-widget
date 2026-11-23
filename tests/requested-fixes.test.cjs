@@ -453,3 +453,28 @@ test('wrong search results cannot supply RSS DOI or abstract', async t => {
   assert.equal(await enrich.fetchAbstractsForArticles([article.id]), 0)
   assert.equal(h.db.prepare('SELECT abstract FROM articles WHERE id=?').get(article.id).abstract || '', '')
 })
+
+
+test('public push rotates sources without keyword priority and skips ineligible articles', async t => {
+  const { db } = await database(t)
+  const insert = (id, journal, title, year = 2025, status = 'display_ready') => {
+    db.prepare(`INSERT INTO articles (id, doi, title, abstract, title_cn, abstract_cn, journal, year, display_status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, `test:${id}`, title, 'A complete abstract for this article. '.repeat(3), '标题', '摘要', journal, year, status)
+  }
+  insert(1, 'A', 'Ordinary construction research')
+  insert(2, 'A', 'LLM agent BIM IFC Revit')
+  insert(3, 'B', 'Ordinary engineering research')
+  insert(4, 'B', 'LLMs agentic IfcOpenShell')
+  insert(5, 'C', 'Bookmarked article')
+  insert(6, 'C', 'Dismissed article')
+  insert(7, 'C', 'Older article', 2024)
+  insert(8, 'C', 'Untranslated article', 2025, 'pending')
+  db.prepare("INSERT INTO interactions (article_id, action) VALUES (5, 'bookmark'), (6, 'dislike')").run()
+  const push = loadSource('electron/services/push-manager.ts', {
+    './db': { getDb: () => db },
+    './publication-policy': { getConfiguredMinYear: value => Math.max(2025, Number(value) || 2025) },
+  })
+  assert.deepEqual(Array.from(push.selectPushItems(20), item => item.articleId), [1, 3, 2, 4])
+  assert.deepEqual(Array.from(push.selectPushItems(20, [1]), item => item.articleId), [3, 2, 4])
+  assert.ok(push.selectPushItems(20).every(item => item.score === 0))
+})
