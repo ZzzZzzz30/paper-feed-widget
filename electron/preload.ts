@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 const api = {
+  getArticleStatistics: () => ipcRenderer.invoke('articles:statistics'),
   getArticles: (params: { status?: 'new' | 'pushed' | 'bookmarked'; limit?: number; offset?: number }) =>
     ipcRenderer.invoke('articles:get', params),
 

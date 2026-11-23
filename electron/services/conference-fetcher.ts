@@ -2,7 +2,7 @@ import cron from 'node-cron'
 import { getDb } from './db'
 import { syncArchitectureProceedings } from './architecture-proceedings'
 import { normalizeArticleTitle, normalizeDoi } from './article-matching'
-import { isEligiblePublicationYear, MIN_PUBLICATION_YEAR } from './publication-policy'
+import { isEligiblePublicationYear, getConfiguredMinYear } from './publication-policy'
 
 export interface ConferenceConfig {
   id: string
@@ -87,10 +87,12 @@ async function runConferenceSync(force: boolean): Promise<ConferenceSyncResult> 
   let inserted = 0
   const syncErrors: string[] = []
   const enabled = new Set(getConferenceOptions().filter(item => item.enabled).map(item => item.id))
+  const yearSetting = getDb().prepare("SELECT value FROM settings WHERE key='year_from'").get() as { value?: string } | undefined
+  const minYear = getConfiguredMinYear(yearSetting?.value)
   const currentYear = new Date().getFullYear()
   for (const source of SOURCES) {
     if (!enabled.has(source.id)) continue
-    for (let year = currentYear; year >= MIN_PUBLICATION_YEAR; year--) {
+    for (let year = currentYear; year >= minYear; year--) {
       if (!hasEdition(source, year)) continue
       const state = getDb().prepare(
         'SELECT last_success_at,last_error FROM conference_fetch_state WHERE conference_id=? AND publication_year=?'
@@ -102,7 +104,7 @@ async function runConferenceSync(force: boolean): Promise<ConferenceSyncResult> 
       try {
         let fetched = 0
         const { errors: sourceErrors } = await fetchConferenceYear(source, year, paper => {
-          if (!isEligiblePublicationYear(publicationYear(paper.publicationDate))) return
+          if (!isEligiblePublicationYear(publicationYear(paper.publicationDate), minYear)) return
           fetched++
           if (upsertConferencePaper(source, year, paper)) inserted++
         })

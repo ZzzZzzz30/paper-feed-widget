@@ -1,10 +1,10 @@
-export const MIN_PUBLICATION_YEAR = 2025
+export const DEFAULT_PUBLICATION_YEAR = 2025
 
-export function isEligiblePublicationYear(year: unknown): year is number {
-  return Number.isInteger(year) && Number(year) >= MIN_PUBLICATION_YEAR
+export function isEligiblePublicationYear(year: unknown, minYear = 1): year is number {
+  return Number.isInteger(year) && Number(year) >= minYear && Number(year) <= 9999
 }
 
 export function getConfiguredMinYear(value: unknown): number {
-  const parsed = Number.parseInt(String(value ?? MIN_PUBLICATION_YEAR), 10)
-  return Math.max(MIN_PUBLICATION_YEAR, Number.isFinite(parsed) ? parsed : MIN_PUBLICATION_YEAR)
+  const parsed = Number(value)
+  return isEligiblePublicationYear(parsed) ? parsed : DEFAULT_PUBLICATION_YEAR
 }

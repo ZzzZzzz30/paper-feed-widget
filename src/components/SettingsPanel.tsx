@@ -91,8 +91,13 @@ export default function SettingsPanel() {
         </Section>
 
         <Section title="推送" group="reading">
-          <Row label="最低出版年份"><span className="text-xs theme-text-secondary">2025 年</span></Row>
+          <PublicationYear />
           <Row label="每轮篇数"><input type="number" value={local.push_count || '20'} onChange={e => set('push_count', e.target.value)} min="5" max="100" className={inp + ' w-20'} /></Row>
+          <PushKeywords />
+        </Section>
+
+        <Section title="文章统计" group="reading">
+          <ArticleStatistics />
         </Section>
 
         <Section title="期刊管理" group="sources">
@@ -157,6 +162,119 @@ export default function SettingsPanel() {
     </div>
     </div>
   )
+}
+
+function PublicationYear() {
+  const saved = useStore(s => s.settings.year_from)
+  const updateSetting = useStore(s => s.updateSetting)
+  const [draft, setDraft] = useState(saved || '2025')
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  useEffect(() => { if (saved !== undefined) setDraft(saved) }, [saved])
+
+  const save = async () => {
+    const year = Number(draft)
+    if (!Number.isInteger(year) || year < 1 || year > 9999) {
+      setError('请输入 1–9999 之间的整数年份。')
+      return
+    }
+    setBusy(true)
+    setError('')
+    setMessage('')
+    try {
+      const value = String(year)
+      await window.electronAPI.updateSetting('year_from', value)
+      updateSetting('year_from', value)
+      setDraft(value)
+      setMessage('已保存，后续采集、翻译和推送使用此年份。')
+    } catch { setError('保存失败，请重试。') }
+    finally { setBusy(false) }
+  }
+
+  return <div className="publication-year">
+    <Row label="最低出版年份"><div className="publication-year-controls">
+      <input type="number" aria-label="最低出版年份" min="1" max="9999" step="1" value={draft} disabled={busy}
+        onChange={e => { setDraft(e.target.value); setMessage(''); setError('') }} />
+      <button type="button" disabled={busy || saved === undefined} onClick={() => void save()}>{busy ? '保存中…' : '保存'}</button>
+    </div></Row>
+    {message && <p className="theme-text-subtle text-xs mt-2" role="status">{message}</p>}
+    {error && <p className="workspace-error" role="alert">{error}</p>}
+  </div>
+}
+
+function PushKeywords() {
+  const saved = useStore(s => s.settings.push_keywords)
+  const updateSetting = useStore(s => s.updateSetting)
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (saved === undefined) return
+    try { setDraft((JSON.parse(saved) as string[]).join(', ')) }
+    catch { setError('关键词加载失败，请重新打开设置。') }
+  }, [saved])
+
+  const save = async () => {
+    setBusy(true)
+    setError('')
+    setMessage('')
+    const keywords = new Map<string, string>()
+    for (const item of draft.split(/[,，;；\n]+/)) {
+      const keyword = item.normalize('NFKC').trim().replace(/\s+/g, ' ')
+      if (keyword && !keywords.has(keyword.toLowerCase())) keywords.set(keyword.toLowerCase(), keyword)
+    }
+    const value = JSON.stringify([...keywords.values()])
+    try {
+      await window.electronAPI.updateSetting('push_keywords', value)
+      updateSetting('push_keywords', value)
+      setDraft([...keywords.values()].join(', '))
+      setMessage('已保存，下次生成或补充推送时生效。')
+    } catch { setError('保存失败，请重试。') }
+    finally { setBusy(false) }
+  }
+
+  return <div className="push-keywords">
+    <label htmlFor="push-keywords-input">推送关键词</label>
+    <textarea id="push-keywords-input" rows={4} value={draft} disabled={busy || saved === undefined}
+      placeholder="输入关键词，用逗号或换行分隔" aria-describedby="push-keywords-help"
+      onChange={e => { setDraft(e.target.value); setMessage(''); setError('') }} />
+    <p id="push-keywords-help">用逗号或换行分隔。标题和摘要命中的关键词越多越优先。</p>
+    <div className="push-keywords-actions">
+      <span role="status">{message}</span>
+      <button type="button" disabled={busy || saved === undefined} onClick={() => void save()}>{busy ? '保存中…' : '保存关键词'}</button>
+    </div>
+    {error && <p className="workspace-error" role="alert">{error}</p>}
+  </div>
+}
+
+function ArticleStatistics() {
+  const [data, setData] = useState<Awaited<ReturnType<typeof window.electronAPI.getArticleStatistics>> | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const refresh = async () => {
+    setLoading(true)
+    setError('')
+    try { setData(await window.electronAPI.getArticleStatistics()) }
+    catch { setError('统计查询失败，请重试。') }
+    finally { setLoading(false) }
+  }
+  const totals = data?.rows.reduce((sum, row) => ({ total: sum.total + row.total, translated: sum.translated + row.translated, available: sum.available + row.available }), { total: 0, translated: 0, available: 0 })
+  return <div className="article-statistics">
+    <div className="article-statistics-header">
+      <span className="theme-text-subtle">{data ? `最近更新 ${new Date(data.updatedAt).toLocaleString()}` : '点击刷新查看文章统计'}</span>
+      <button type="button" onClick={() => void refresh()} disabled={loading}>{loading ? '查询中…' : '刷新'}</button>
+    </div>
+    {error && <p className="workspace-error" role="alert">{error}</p>}
+    {data && <div className="article-statistics-scroll"><table>
+      <thead><tr><th>来源</th><th>已入库</th><th>已翻译</th><th>可推送</th></tr></thead>
+      <tbody>{data.rows.map((row, index) => <tr key={`${row.name}-${index}`}><td>{row.name}</td><td>{row.total.toLocaleString()}</td><td>{row.translated.toLocaleString()}</td><td>{row.available.toLocaleString()}</td></tr>)}
+        {totals && <tr className="article-statistics-total"><td>合计</td><td>{totals.total.toLocaleString()}</td><td>{totals.translated.toLocaleString()}</td><td>{totals.available.toLocaleString()}</td></tr>}
+      </tbody>
+    </table></div>}
+  </div>
 }
 
 function SecretSetting({ label, settingKey, placeholder }: { label: string; settingKey: string; placeholder: string }) {

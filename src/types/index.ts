@@ -35,6 +35,7 @@ interface ElectronAPI {
   openDataDirectory: () => Promise<{ ok: boolean }>
   discoverJournal: (name: string) => Promise<{ candidates: JournalCandidate[]; exact: boolean }>
   addJournal: (journal: JournalConfig) => Promise<{ added: boolean; journals: JournalConfig[] }>
+  getArticleStatistics: () => Promise<{ rows: Array<{ name: string; total: number; translated: number; available: number }>; updatedAt: string }>
   getArticles: (params: { status?: 'new' | 'pushed' | 'bookmarked'; limit?: number; offset?: number }) => Promise<Article[]>
   recordInteraction: (articleId: number, action: InteractionAction) => Promise<void>
   removeBookmark: (articleId: number) => Promise<boolean>

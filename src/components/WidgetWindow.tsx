@@ -9,6 +9,7 @@ interface Props {
 }
 
 export default function WidgetWindow({ mode = 'push' }: Props) {
+  const yearFrom = useStore(s => s.settings.year_from)
   const [loading, setLoading] = useState(true)
   const setQueue = useStore(s => s.setQueue)
   const restoreQueue = useStore(s => s.restoreQueue)
@@ -25,9 +26,17 @@ export default function WidgetWindow({ mode = 'push' }: Props) {
   }, [mode, queue, currentIndex])
 
   useEffect(() => {
-    if (queue.length === 0) { loadQueue() }
-    else { setLoading(false) }
-  }, [mode])
+    if (yearFrom === undefined) return
+    if (mode === 'push') {
+      const eligible = queue.filter(item => item.year >= Number(yearFrom))
+      if (eligible.length !== queue.length) {
+        const currentId = queue[currentIndex]?.articleId
+        restoreQueue(eligible, Math.max(0, eligible.findIndex(item => item.articleId === currentId)))
+      }
+      if (eligible.length === 0) { void loadQueue(); return }
+    } else if (queue.length === 0) { void loadQueue(); return }
+    setLoading(false)
+  }, [mode, yearFrom])
 
   useEffect(() => {
     if (mode !== 'push' || queue.length === 0 || loading) return

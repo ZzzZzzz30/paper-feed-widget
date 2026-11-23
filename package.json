@@ -1,6 +1,6 @@
 {
   "name": "paper-feed-widget",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "期刊论文桌面推送挂件 - 像刷小红书一样读论文",
   "main": "dist/electron/main.js",
   "scripts": {

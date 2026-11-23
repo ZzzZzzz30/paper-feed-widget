@@ -1,3 +1,4 @@
+import { normalizePushKeywords, readPushKeywords } from './services/push-keywords'
 import { ipcMain, BrowserWindow, shell } from 'electron'
 import { setWidgetCompact, setWorkspaceExpanded, resizeSurface, dragIsland, isIslandHovered, setWindowMaterial } from './window'
 import { spawn } from 'child_process'
@@ -5,7 +6,7 @@ import fs from 'fs'
 import { getDb, saveNow } from './services/db'
 import { fetchAllJournals } from './services/fetcher'
 import { getConferenceOptions, saveConferenceOptions, syncConferences } from './services/conference-fetcher'
-import { getConfiguredMinYear } from './services/publication-policy'
+import { getConfiguredMinYear, isEligiblePublicationYear } from './services/publication-policy'
 import { fetchAbstractsForArticles } from './services/abstract-fetcher'
 import { generatePushQueue, getQueueSize, selectPushItems } from './services/push-manager'
 import { quickSummary, chat } from './services/analysis/analysis-service'
@@ -42,6 +43,39 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const now = new Date()
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   }
+
+  ipcMain.handle('articles:statistics', () => {
+    const yearRow = db.prepare("SELECT value FROM settings WHERE key='year_from'").get() as { value?: string } | undefined
+    const minYear = getConfiguredMinYear(yearRow?.value)
+    const conferences = getConferenceOptions()
+    const names = new Map(conferences.map(item => [item.id.toLowerCase(), item.name]))
+    const rows = db.prepare(`
+      SELECT CASE WHEN a.source_type = 'conference' THEN 'conference' ELSE 'journal' END AS type,
+        CASE WHEN a.source_type = 'conference' THEN lower(coalesce(nullif(trim(a.conference_id), ''), trim(a.journal))) ELSE lower(trim(a.journal)) END AS statistics_venue_key,
+        MIN(a.journal) AS name, COUNT(*) AS total,
+        SUM(CASE WHEN coalesce(a.title_cn, '') != '' AND coalesce(a.abstract_cn, '') != '' THEN 1 ELSE 0 END) AS translated,
+        SUM(CASE WHEN a.display_status = 'display_ready' AND coalesce(a.title_cn, '') != ''
+          AND a.abstract IS NOT NULL AND length(a.abstract) > 50 AND a.year >= ? AND blocked.article_id IS NULL THEN 1 ELSE 0 END) AS available
+      FROM articles a
+      LEFT JOIN (SELECT DISTINCT article_id FROM interactions WHERE action IN ('bookmark', 'dislike')) blocked ON blocked.article_id = a.id
+      GROUP BY type, statistics_venue_key
+    `).all(minYear) as Array<{ type: string; statistics_venue_key: string; name: string; total: number; translated: number; available: number }>
+    const sources = new Map(rows.map(row => [`${row.type}:${row.statistics_venue_key}`, { name: row.type === 'conference' ? names.get(row.statistics_venue_key) || row.name : row.name, total: row.total, translated: row.translated, available: row.available }]))
+    const journalRow = db.prepare("SELECT value FROM settings WHERE key='journals'").get() as { value?: string } | undefined
+    try {
+      const journals = JSON.parse(journalRow?.value || '[]') as Array<{ name?: string }>
+      for (const journal of journals) {
+        if (!journal.name) continue
+        const key = `journal:${journal.name.trim().toLowerCase()}`
+        if (!sources.has(key)) sources.set(key, { name: journal.name, total: 0, translated: 0, available: 0 })
+      }
+    } catch { /* Ignore invalid saved journal configuration. */ }
+    for (const conference of conferences.filter(item => item.enabled)) {
+      const key = `conference:${conference.id.toLowerCase()}`
+      if (!sources.has(key)) sources.set(key, { name: conference.name, total: 0, translated: 0, available: 0 })
+    }
+    return { rows: Array.from(sources.values()).sort((a, b) => a.name.localeCompare(b.name)), updatedAt: new Date().toISOString() }
+  })
 
   ipcMain.handle('articles:get', async (_e, params: { status?: string; limit?: number; offset?: number }) => {
     const limit = params.limit || 20
@@ -159,16 +193,22 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('settings:get', async () => {
     const settings = getSettingsForRenderer()
+    settings.push_keywords = JSON.stringify(readPushKeywords(settings.push_keywords))
     console.log('[Settings] getSettings → font_size =', settings.font_size, 'font_family =', settings.font_family)
     return settings
   })
 
   ipcMain.handle('settings:update', async (_e, { key, value }: { key: string; value: string }) => {
     try {
+      if (key === 'push_keywords') value = JSON.stringify(normalizePushKeywords(JSON.parse(value)))
       if (key === 'year_from') {
-        const parsed = Number.parseInt(value, 10)
-        if (!Number.isFinite(parsed)) throw new Error('出版年份必须是有效数字')
-        value = String(Math.max(2025, parsed))
+        const parsed = Number(value)
+        if (!isEligiblePublicationYear(parsed)) throw new Error('出版年份必须为 1–9999 的整数')
+        value = String(parsed)
+        const previous = db.prepare("SELECT value FROM settings WHERE key='year_from'").get() as { value?: string } | undefined
+        if (getConfiguredMinYear(previous?.value) !== parsed) {
+          db.prepare('DELETE FROM journal_fetch_state').run()
+        }
       }
       if (isSecretSetting(key)) {
         writeSettingValue(key, value)

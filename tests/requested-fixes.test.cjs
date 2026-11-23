@@ -11,6 +11,11 @@ const localRequire = createRequire(path.join(root, 'package.json'))
 const ts = localRequire('typescript')
 
 function loadSource(relative, mocks = {}, globals = {}) {
+  if (relative === 'electron/services/conference-fetcher.ts' && !mocks['./architecture-proceedings']) {
+    mocks['./architecture-proceedings'] = loadSource('electron/services/architecture-proceedings.ts', {
+      './db': mocks['./db'], './article-matching': mocks['./article-matching'],
+    })
+  }
   const filename = path.join(root, relative)
   const req = createRequire(filename)
   const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
@@ -42,6 +47,7 @@ async function database(t) {
   } })
   const api = loadSource('electron/services/db.ts', {
     electron: { app: { getPath: () => directory, getAppPath: () => root } }, fs: disk,
+    './publication-policy': loadSource('electron/services/publication-policy.ts'),
   }, {
     setTimeout: (callback, delay) => { const handle = { unref() {} }; timers.set(handle, { callback, delay }); return handle },
     clearTimeout: handle => timers.delete(handle),
@@ -106,14 +112,11 @@ test('database skips clean checkpoints, combines changes, preserves data, and re
   reopened.close()
 })
 
-test('database seeds bundled journals while preserving saved subscriptions', async t => {
+test('public database starts with empty journal subscriptions and accepts user subscriptions', async t => {
   const h = await database(t)
   const rows = h.db.prepare("SELECT value FROM settings WHERE key='journals'").get()
   const journals = JSON.parse(rows.value)
-  assert.deepEqual(journals.map(journal => journal.name), [
-    'Automation in Construction', 'Journal of Building Engineering', 'Advanced Engineering Informatics',
-  ])
-  assert.deepEqual(journals.map(journal => journal.issn), ['0926-5805', '2352-7102', '1474-0346'])
+  assert.deepEqual(journals, [])
 
   const custom = { name: 'Saved Custom Journal', issn: '1234-5678', rssUrl: '' }
   h.db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES ('journals',?)")
@@ -182,11 +185,15 @@ test('metadata matching rejects wrong title/journal/type/year/DOI and ambiguous 
   assert.equal(matching.normalizeDoi('https://doi.org/10.1234/FIXTURE.1'), '10.1234/fixture.1')
 })
 
-test('publication policy keeps the hard 2025 cutoff even when an older preference is stored', () => {
+test('publication policy accepts configurable years and rejects invalid values', () => {
   const policy = loadSource('electron/services/publication-policy.ts')
-  assert.equal(policy.getConfiguredMinYear('2015'), 2025)
+  assert.equal(policy.getConfiguredMinYear('2015'), 2015)
+  assert.equal(policy.getConfiguredMinYear('2024abc'), 2025)
+  assert.equal(policy.getConfiguredMinYear('0'), 2025)
+  assert.equal(policy.getConfiguredMinYear(''), 2025)
+  assert.equal(policy.isEligiblePublicationYear(2024, 2026), false)
   assert.equal(policy.getConfiguredMinYear('2026'), 2026)
-  assert.equal(policy.isEligiblePublicationYear(2024), false)
+  assert.equal(policy.isEligiblePublicationYear(2024), true)
   assert.equal(policy.isEligiblePublicationYear(2025), true)
   assert.equal(policy.isEligiblePublicationYear('2025'), false)
 })
@@ -472,9 +479,75 @@ test('public push rotates sources without keyword priority and skips ineligible 
   db.prepare("INSERT INTO interactions (article_id, action) VALUES (5, 'bookmark'), (6, 'dislike')").run()
   const push = loadSource('electron/services/push-manager.ts', {
     './db': { getDb: () => db },
-    './publication-policy': { getConfiguredMinYear: value => Math.max(2025, Number(value) || 2025) },
+    './publication-policy': loadSource('electron/services/publication-policy.ts'),
+    './push-keywords': loadSource('electron/services/push-keywords.ts'),
   })
   assert.deepEqual(Array.from(push.selectPushItems(20), item => item.articleId), [1, 3, 2, 4])
   assert.deepEqual(Array.from(push.selectPushItems(20, [1]), item => item.articleId), [3, 2, 4])
   assert.ok(push.selectPushItems(20).every(item => item.score === 0))
+  db.prepare("UPDATE settings SET value='2024' WHERE key='year_from'").run()
+  assert.ok(push.selectPushItems(20).some(item => item.articleId === 7))
+  db.prepare("UPDATE settings SET value='2026' WHERE key='year_from'").run()
+  assert.equal(push.selectPushItems(20).length, 0)
+})
+
+
+test('public keywords start empty and honor only the user supplied list', () => {
+  const keywords = loadSource('electron/services/push-keywords.ts')
+  assert.equal(keywords.readPushKeywords().length, 0)
+  assert.equal(keywords.createKeywordScorer(keywords.readPushKeywords())('LLM BIM IFC agent', ''), 0)
+  const score = keywords.createKeywordScorer(keywords.readPushKeywords('["digital twin","agent"]'))
+  assert.equal(score('Digital-twin with MultiAgent', ''), 2)
+  assert.equal(score('LLM BIM IFC', ''), 0)
+  assert.equal(keywords.readPushKeywords('[]').length, 0)
+})
+
+test('public profile starts empty and preserves a chosen older year after restart', async t => {
+  const h = await database(t)
+  assert.equal(h.db.prepare('SELECT count(*) AS count FROM articles').get().count, 0)
+  assert.equal(h.db.prepare("SELECT value FROM settings WHERE key='journals'").get().value, '[]')
+  const conference = loadSource('electron/services/conference-fetcher.ts', {
+    './db': h.api, './article-matching': matching,
+    './publication-policy': loadSource('electron/services/publication-policy.ts'),
+    'node-cron': { schedule() {} },
+  })
+  assert.ok(conference.getConferenceOptions().every(source => source.enabled === false))
+  assert.equal(h.db.prepare("SELECT count(*) AS count FROM settings WHERE (key LIKE '%api_key%' OR key LIKE '%access_key%') AND value != ''").get().count, 0)
+  h.db.prepare("UPDATE settings SET value='2018' WHERE key='year_from'").run()
+  h.api.saveNow()
+  h.db.close()
+  await h.api.initDatabase()
+  assert.equal(h.api.getDb().prepare("SELECT value FROM settings WHERE key='year_from'").get().value, '2018')
+})
+
+
+test('journal collection accepts pre-2025 articles when the minimum year allows them', async t => {
+  const h = await database(t)
+  const paper = work('10.1234/older', { published: { 'date-parts': [[2024, 1, 1]] }, 'published-online': { 'date-parts': [[2024, 1, 1]] }, 'published-print': { 'date-parts': [[2024, 1, 1]] } })
+  const api = fetcher(h, [], [paper], [])
+  assert.equal(await api.fetchAllJournals(true), 0)
+  h.db.prepare("UPDATE settings SET value='2024' WHERE key='year_from'").run()
+  assert.equal(await api.fetchAllJournals(true), 1)
+  assert.equal(h.db.prepare('SELECT year FROM articles').get().year, 2024)
+})
+
+test('conference collection visits years down to the saved minimum and filters older records', async t => {
+  const h = await database(t)
+  h.db.prepare("UPDATE settings SET value='2024' WHERE key='year_from'").run()
+  h.db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES ('conferences', ?)").run('[{"id":"caadria","enabled":true}]')
+  const visited = []
+  const conference = loadSource('electron/services/conference-fetcher.ts', {
+    './db': h.api, './article-matching': matching,
+    './publication-policy': loadSource('electron/services/publication-policy.ts'),
+    './architecture-proceedings': { syncArchitectureProceedings: async (venue, year, readPage, persist) => {
+      visited.push(year)
+      for (const paperYear of [year, 2023]) persist({ sourceId: `${venue}:${paperYear}`, doi: '', title: `Research ${paperYear}`, abstract: '', authors: [], publicationDate: String(paperYear), url: '', pdfUrl: '' })
+      return { errors: [] }
+    } },
+    'node-cron': { schedule() {} },
+  })
+  await conference.syncConferences(true)
+  assert.equal(Math.min(...visited), 2024)
+  assert.equal(Math.max(...visited), new Date().getFullYear())
+  assert.equal(h.db.prepare('SELECT MIN(year) AS year FROM articles').get().year, 2024)
 })

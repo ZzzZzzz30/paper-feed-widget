@@ -6,7 +6,7 @@ import { fetchAbstractsForArticles } from './abstract-fetcher'
 import { BrowserWindow } from 'electron'
 import { translateArticle } from './translation/service'
 import { TranslateResult, TranslationFailedError, TranslationUnavailableError } from './translation/types'
-import { MIN_PUBLICATION_YEAR } from './publication-policy'
+import { getConfiguredMinYear } from './publication-policy'
 import { sourceKey } from './push-manager'
 
 let running = true
@@ -73,12 +73,14 @@ async function mainLoop(): Promise<void> {
   let lastSource = ''
   while (running) {
     try {
+      const yearSetting = db.prepare("SELECT value FROM settings WHERE key='year_from'").get() as { value?: string } | undefined
+      const minYear = getConfiguredMinYear(yearSetting?.value)
       const article = db.prepare(`
         SELECT a.id, ${sourceKey} AS venue_key FROM articles a
         WHERE a.year >= ? AND (a.display_status IS NULL OR a.display_status NOT IN ('display_ready','no_abstract','failed'))
         ORDER BY CASE WHEN venue_key <= ? THEN 1 ELSE 0 END, venue_key, a.id
         LIMIT 1
-      `).get(MIN_PUBLICATION_YEAR, lastSource) as { id: number; venue_key: string } | undefined
+      `).get(minYear, lastSource) as { id: number; venue_key: string } | undefined
       if (!article) { await sleep(5000); continue }
       await prepareArticle(article.id)
       lastSource = article.venue_key

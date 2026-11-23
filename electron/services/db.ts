@@ -1,3 +1,4 @@
+import { getConfiguredMinYear } from './publication-policy'
 import initSqlJs, { type SqlJsStatic, type Database as SqlJsDb, type Statement, type SqlValue } from 'sql.js'
 import path from 'path'
 import fs from 'fs'
@@ -372,9 +373,9 @@ export async function initDatabase(): Promise<void> {
   }
 
   const yearSetting = dbWrapper.prepare("SELECT value FROM settings WHERE key='year_from'").get() as { value?: string } | undefined
-  const yearFrom = Number.parseInt(yearSetting?.value || '2025', 10)
-  if (!Number.isFinite(yearFrom) || yearFrom < 2025) {
-    dbWrapper.prepare("UPDATE settings SET value='2025' WHERE key='year_from'").run()
+  const yearFrom = getConfiguredMinYear(yearSetting?.value)
+  if (yearSetting?.value !== String(yearFrom)) {
+    dbWrapper.prepare("UPDATE settings SET value=? WHERE key='year_from'").run(String(yearFrom))
   }
 
   dbWrapper.prepare("UPDATE settings SET value='aliyun' WHERE key='translation_provider' AND value='tencent'").run()
@@ -384,10 +385,10 @@ export async function initDatabase(): Promise<void> {
   if (!dbWrapper.prepare('SELECT 1 FROM settings WHERE key=?').get(abstractRetryKey)) {
     dbWrapper.prepare(`
       UPDATE articles SET display_status='metadata'
-      WHERE source_type='journal' AND year>=2025 AND display_status='no_abstract'
+      WHERE source_type='journal' AND year>=? AND display_status='no_abstract'
         AND lower(extra_doi) LIKE '10.1016/%'
         AND length(trim(coalesce(abstract,''))) < 50
-    `).run()
+    `).run(yearFrom)
     dbWrapper.prepare('INSERT INTO settings (key,value) VALUES (?,?)').run(abstractRetryKey, 'true')
   }
 
